@@ -14,6 +14,7 @@ import (
 type MessageContext struct {
 	Context      context.Context
 	SenderJID    types.JID
+	SenderPhone  string
 	SenderName   string
 	ChatJID      types.JID
 	IsGroup      bool

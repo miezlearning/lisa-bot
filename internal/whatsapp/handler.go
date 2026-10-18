@@ -61,41 +61,60 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		evt.Info.Sender.String(), evt.Info.Chat.String(), evt.Info.IsGroup, rawText)
 
 	ctx := context.Background()
+	senderPhone, senderLID := h.resolveSender(ctx, evt)
+
+	fmt.Printf("\n📩 [Pesan Masuk] Dari: %s (Phone: %s, LID: %s) | Chat: %s (Grup: %v)\n   Teks: %q\n",
+		evt.Info.Sender.String(), senderPhone, senderLID, evt.Info.Chat.String(), evt.Info.IsGroup, rawText)
 
 	// 3. Group Whitelist & Mention/Reply Check
 	if evt.Info.IsGroup {
 		chatJIDStr := evt.Info.Chat.String()
-		senderPhone := evt.Info.Sender.User
 		lowerRaw := strings.ToLower(rawText)
 
 		// Check registered admins count
 		adminCount, _ := h.db.GetAdminCount(ctx)
 
+		// Check if sender is registered admin (by phone or LID)
+		isAdmin := (senderPhone != "" && h.db.IsAdmin(ctx, senderPhone)) || (senderLID != "" && h.db.IsAdmin(ctx, senderLID))
+
+		// If admin verified by phone, auto-link their LID as admin alias
+		if isAdmin && senderLID != "" && !h.db.IsAdmin(ctx, senderLID) {
+			_ = h.db.AddAdmin(ctx, senderLID, evt.Info.PushName, "lid_alias:"+senderPhone)
+			fmt.Printf("🔗 [LID Linked] Akun LID %s otomatis ditautkan sebagai admin alias dari %s\n", senderLID, senderPhone)
+		}
+
 		// Bootstrap: Jika belum ada admin terdaftar di database sama sekali
 		if adminCount == 0 {
 			if strings.Contains(lowerRaw, "izinkan grup") || strings.Contains(lowerRaw, "klaim admin") {
-				_ = h.db.AddAdmin(ctx, senderPhone, evt.Info.PushName, "bootstrap")
-				fmt.Printf("👑 [Bootstrap] Admin pertama otomatis didaftarkan: %s (%s)\n", senderPhone, evt.Info.PushName)
+				adminID := senderPhone
+				if adminID == "" {
+					adminID = senderLID
+				}
+				_ = h.db.AddAdmin(ctx, adminID, evt.Info.PushName, "bootstrap")
+				if senderLID != "" && senderLID != adminID {
+					_ = h.db.AddAdmin(ctx, senderLID, evt.Info.PushName, "bootstrap_lid")
+				}
+				isAdmin = true
+				fmt.Printf("👑 [Bootstrap] Admin pertama otomatis didaftarkan: %s (%s)\n", adminID, evt.Info.PushName)
 			}
 		}
 
 		// Check if group is authorized in database
 		isAllowed := h.db.IsGroupAllowed(ctx, chatJIDStr)
 		if !isAllowed {
-			isAdmin := h.db.IsAdmin(ctx, senderPhone)
 			isAllowCmd := strings.Contains(lowerRaw, "izinkan grup") || strings.Contains(lowerRaw, "allow group")
 
 			if isAdmin && isAllowCmd {
-				fmt.Printf("🔓 [Whitelist] Memproses perintah izin grup dari admin: %s\n", senderPhone)
+				fmt.Printf("🔓 [Whitelist] Memproses perintah izin grup dari admin: Phone=%s, LID=%s\n", senderPhone, senderLID)
 			} else {
-				// Jika grup belum diizinkan dan bot belum punya admin sama sekali, beri petunjuk
-				if adminCount == 0 && (strings.Contains(lowerRaw, "@bot") || strings.HasPrefix(lowerRaw, "!")) {
+				if adminCount == 0 && (strings.Contains(lowerRaw, "@bot") || strings.Contains(lowerRaw, "@lisa") || strings.HasPrefix(lowerRaw, "!")) {
 					fmt.Printf("⚠️ Grup %s belum diizinkan dan belum ada admin terdaftar.\n", chatJIDStr)
 					h.sendReply(evt, "⚠️ *Bot Belum Diizinkan di Grup Ini*\n\nBelum ada admin yang didaftarkan di sistem. Untuk mengizinkan grup ini dan mendaftarkan kamu sebagai admin pertama, ketik:\n`@Bot izinkan grup`")
 					return
 				}
 
 				fmt.Printf("🚫 [Abaikan] Grup %s belum diizinkan dalam database whitelist.\n", chatJIDStr)
+				fmt.Printf("   💡 Petunjuk: Admin dapat mengizinkan grup ini dengan mengirim pesan japri ke bot:\n   izinkan grup %s\n", chatJIDStr)
 				return
 			}
 		}
@@ -124,6 +143,7 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 	msgCtx := &router.MessageContext{
 		Context:      ctx,
 		SenderJID:    evt.Info.Sender,
+		SenderPhone:  senderPhone,
 		SenderName:   evt.Info.PushName,
 		ChatJID:      evt.Info.Chat,
 		IsGroup:      evt.Info.IsGroup,
@@ -149,11 +169,61 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 	h.sendReply(evt, finalResponse)
 }
 
+// resolveSender resolves the sender's phone number and LID.
+func (h *EventHandler) resolveSender(ctx context.Context, evt *events.Message) (string, string) {
+	var phone, lid string
+
+	if evt.Info.Sender.Server == "lid" {
+		lid = evt.Info.Sender.User
+	} else if evt.Info.Sender.Server == types.DefaultUserServer || evt.Info.Sender.Server == "" {
+		phone = evt.Info.Sender.User
+	}
+
+	if evt.Info.SenderAlt.Server == types.DefaultUserServer && evt.Info.SenderAlt.User != "" {
+		phone = evt.Info.SenderAlt.User
+	} else if evt.Info.SenderAlt.Server == "lid" && evt.Info.SenderAlt.User != "" {
+		lid = evt.Info.SenderAlt.User
+	}
+
+	// Try whatsmeow's internal LID mapping store
+	if phone == "" && lid != "" && h.client != nil && h.client.Store != nil && h.client.Store.LIDs != nil {
+		pn, err := h.client.Store.LIDs.GetPNForLID(ctx, evt.Info.Sender.ToNonAD())
+		if err == nil && !pn.IsEmpty() && pn.User != "" {
+			phone = pn.User
+		}
+	}
+
+	// Try querying group participant list
+	if phone == "" && evt.Info.IsGroup && h.client != nil {
+		groupInfo, err := h.client.GetGroupInfo(ctx, evt.Info.Chat)
+		if err == nil && groupInfo != nil {
+			for _, p := range groupInfo.Participants {
+				pLID := p.LID.ToNonAD().User
+				pJID := p.JID.ToNonAD().User
+				pPN := p.PhoneNumber.ToNonAD().User
+
+				if lid != "" && (pLID == lid || pJID == lid) {
+					if pPN != "" {
+						phone = pPN
+						break
+					}
+					if p.JID.Server == types.DefaultUserServer && pJID != "" {
+						phone = pJID
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return phone, lid
+}
+
 func (h *EventHandler) shouldRespondInGroup(evt *events.Message, rawText string) bool {
 	lower := strings.ToLower(strings.TrimSpace(rawText))
 
-	// Prefix @bot, !, or /
-	if strings.Contains(lower, "@bot") || strings.HasPrefix(lower, "!") || strings.HasPrefix(lower, "/") {
+	// Prefix @bot, @lisa, !, or /
+	if strings.Contains(lower, "@bot") || strings.Contains(lower, "@lisa") || strings.HasPrefix(lower, "!") || strings.HasPrefix(lower, "/") {
 		return true
 	}
 
@@ -167,8 +237,11 @@ func (h *EventHandler) shouldRespondInGroup(evt *events.Message, rawText string)
 		botLID = h.client.Store.LID.ToNonAD()
 	}
 
-	// Check if text directly contains bot phone number e.g. @6285928105840
+	// Check if text directly contains bot phone number or LID e.g. @6285928105840 or @69458949357693
 	if botPhoneJID.User != "" && strings.Contains(lower, "@"+botPhoneJID.User) {
+		return true
+	}
+	if botLID.User != "" && strings.Contains(lower, "@"+botLID.User) {
 		return true
 	}
 

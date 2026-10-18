@@ -33,10 +33,13 @@ func (h *Handler) CanHandle(result *nlu.NLUResult) bool {
 }
 
 func (h *Handler) Execute(ctx *router.MessageContext) (string, error) {
-	senderPhone := ctx.SenderJID.User
+	senderPhone := ctx.SenderPhone
+	if senderPhone == "" {
+		senderPhone = ctx.SenderJID.User
+	}
 
-	// Verify authorization
-	if !h.db.IsAdmin(ctx.Context, senderPhone) {
+	// Verify authorization (checks resolved phone number or raw JID user/LID)
+	if !h.db.IsAdmin(ctx.Context, senderPhone) && !h.db.IsAdmin(ctx.Context, ctx.SenderJID.User) {
 		return "⛔ *Akses Ditolak*\nPerintah pengaturan bot hanya dapat dijalankan oleh admin nomor telepon terdaftar.", nil
 	}
 
@@ -72,13 +75,21 @@ func (h *Handler) handleAllowGroup(ctx *router.MessageContext, payload string) (
 	var groupName string
 
 	fields := strings.Fields(payload)
-	if len(fields) >= 3 && strings.Contains(fields[2], "@g.us") {
-		targetJID = fields[2]
-		groupName = "Grup " + targetJID
-	} else if ctx.IsGroup {
+	if len(fields) >= 3 {
+		arg := strings.TrimSpace(fields[2])
+		if strings.Contains(arg, "@g.us") {
+			targetJID = arg
+			groupName = "Grup " + targetJID
+		} else if len(arg) > 10 { // format angka id grup WhatsApp
+			targetJID = arg + "@g.us"
+			groupName = "Grup " + targetJID
+		}
+	}
+	if targetJID == "" && ctx.IsGroup {
 		targetJID = ctx.ChatJID.String()
 		groupName = "Grup Ini"
-	} else {
+	}
+	if targetJID == "" {
 		return "⚠️ Gunakan perintah ini langsung di dalam grup WhatsApp yang ingin diizinkan, atau tentukan JID grup:\n`@Bot izinkan grup <groupID@g.us>`", nil
 	}
 
