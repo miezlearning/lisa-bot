@@ -58,9 +58,9 @@ func NewEngine(sc *SpellChecker, loc *time.Location, llm LLMFallback) *Engine {
 
 // Process parses a raw WhatsApp message through spellchecking, intent classification, and entity extraction.
 func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error) {
-	// 1. Remove command prefix (! or /) if present
+	// 1. Remove command prefix (!, /, ., or #) if present
 	trimmed := strings.TrimSpace(rawText)
-	if strings.HasPrefix(trimmed, "!") || strings.HasPrefix(trimmed, "/") {
+	if strings.HasPrefix(trimmed, "!") || strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, ".") || strings.HasPrefix(trimmed, "#") {
 		trimmed = strings.TrimSpace(trimmed[1:])
 	}
 
@@ -140,8 +140,8 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 		return result, nil
 	}
 
-	// Check: Bot Help Menu
-	if lower == "help" || lower == "menu" || lower == "bantuan" || lower == "info bot" {
+	// Check: Bot Help & Utility Menu (support !menu, .ping, /status, etc.)
+	if lower == "help" || lower == "menu" || lower == "bantuan" || lower == "info bot" || lower == "ping" || lower == "status" {
 		result.Intent = IntentBotHelp
 		result.Confidence = 1.0
 		return result, nil

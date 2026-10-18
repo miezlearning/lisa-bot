@@ -3,6 +3,7 @@ package knowledge
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"whatsapp-bot/internal/database"
 	"whatsapp-bot/internal/nlu"
@@ -88,19 +89,25 @@ func (h *Handler) handleConversation(ctx *router.MessageContext) (string, error)
 }
 
 func (h *Handler) handleHelp(ctx *router.MessageContext) (string, error) {
+	lower := strings.ToLower(strings.TrimSpace(ctx.CleanMessage))
+	if lower == "ping" || lower == "status" {
+		return "🏓 *Pong!*\n\n🤖 *AI Lisa Status*: Online & Siap Melayani\n⚡ *Response Engine*: Pure Go Deterministic NLU + Multi-Model AI\n📦 *Database*: SQLite Connected\n🕒 *Waktu Server*: " + time.Now().Format("15:04:05 MST"), nil
+	}
+
 	items, err := h.db.FindKnowledge(ctx.Context, "info bot")
 	if err == nil && len(items) > 0 {
 		return items[0].Content, nil
 	}
 
-	return "🤖 *Bantuan Bot Lisa*\n\n" +
-		"Perintah yang dapat digunakan:\n" +
-		"• Cek Jadwal: *jadwal senin*, *jadwal besok*, *hari ini kuliah apa*\n" +
-		"• Status Saat Ini: *sekarang kelas apa?*\n" +
-		"• Tanya Info/Aturan: *larangan praktikum apa aja?*, *aturan kuliah*\n" +
-		"• Update Info Harian: `@Bot info hari ini <matkul> <catatan>`\n" +
-		"• Tambah Pengetahuan: `@Bot tambah info <topik> | <isi info>`\n" +
-		"• Simpan Jadwal: `@Bot simpan jadwal` diikuti teks jadwal.", nil
+	return "🤖 *Panduan & Menu AI Lisa*\n\n" +
+		"Perintah dapat diketik langsung, di-mention (@AI Lisa), atau menggunakan prefix (`!`, `.`, `/`):\n\n" +
+		"• *Jadwal Kuliah*: `!jadwal senin`, `!jadwal besok`, `!sekarang kelas apa`\n" +
+		"• *Info Matkul*: `!kapan kelas pih?`\n" +
+		"• *Aturan & Info*: `!larangan praktikum`, `!aturan lab`\n" +
+		"• *Cek Server*: `!ping` atau `.status`\n" +
+		"• *Update Jadwal*: `!info hari ini <matkul> <catatan>`\n" +
+		"• *Kelola Admin*: `!izinkan grup`, `!daftar grup`, `!tambah admin <nomor>`\n\n" +
+		"_Kamu juga bisa ngobrol santai atau tanya materi kuliah apapun langsung ke Lisa!_", nil
 }
 
 func (h *Handler) handleAddInfo(ctx *router.MessageContext) (string, error) {
