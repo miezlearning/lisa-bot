@@ -61,15 +61,15 @@ func (h *Handler) Execute(ctx *router.MessageContext) (string, error) {
 }
 
 func (h *Handler) handleConversation(ctx *router.MessageContext) (string, error) {
-	// 1. Jika Gemini AI aktif, jawab secara cerdas & natural
+	// 1. Jika Otak AI aktif, jawab secara cerdas & natural
 	if h.llm != nil {
-		fmt.Printf("🤖 [Gemini AI] Menjawab percakapan: %q...\n", ctx.RawMessage)
+		fmt.Printf("🤖 [AI Lisa Brain] Menjawab percakapan: %q...\n", ctx.RawMessage)
 		resp, err := h.llm.GenerateResponse(ctx.Context, ctx.RawMessage)
 		if err == nil && strings.TrimSpace(resp) != "" {
-			fmt.Println("✨ [Gemini AI] Berhasil membalas percakapan.")
+			fmt.Println("✨ [AI Lisa Brain] Berhasil membalas percakapan.")
 			return resp, nil
 		}
-		fmt.Printf("⚠️ [Gemini AI Error]: %v\n", err)
+		fmt.Printf("⚠️ [AI Lisa Brain Error]: %v\n", err)
 	}
 
 	// 2. Fallback jika tanpa Gemini AI (persona Lisa yang ramah)
@@ -164,16 +164,16 @@ func (h *Handler) handleQuery(ctx *router.MessageContext) (string, error) {
 		}
 	}
 
-	// 3. Fallback ke LLM Eksternal (Gemini Free) jika diaktifkan
+	// 3. Fallback ke Otak AI cerdas jika diaktifkan
 	if h.llm != nil {
-		fmt.Printf("🤖 [Gemini AI] Memproses pertanyaan bebas: %q...\n", ctx.RawMessage)
-		llmPrompt := fmt.Sprintf("Pengguna bertanya: %q (teks normalisasi: %q). Jawablah pertanyaan ini sebagai asisten perkuliahan.", ctx.RawMessage, topicClean)
+		fmt.Printf("🤖 [AI Lisa Brain] Memproses pertanyaan bebas: %q...\n", ctx.RawMessage)
+		llmPrompt := fmt.Sprintf("Pengguna bertanya: %q (teks normalisasi: %q). Jawablah pertanyaan ini sebagai AI Lisa, asisten perkuliahan.", ctx.RawMessage, topicClean)
 		llmResp, err := h.llm.GenerateResponse(ctx.Context, llmPrompt)
 		if err == nil && strings.TrimSpace(llmResp) != "" {
-			fmt.Println("✨ [Gemini AI] Berhasil menghasilkan respons cerdas.")
+			fmt.Println("✨ [AI Lisa Brain] Berhasil menghasilkan respons cerdas.")
 			return llmResp, nil
 		}
-		fmt.Printf("⚠️ [Gemini AI Error]: %v\n", err)
+		fmt.Printf("⚠️ [AI Lisa Brain Error]: %v\n", err)
 	}
 
 	return fmt.Sprintf("Maaf, informasi mengenai *%s* belum ada di database. Kamu bisa menambahkannya dengan perintah:\n`@Bot tambah info %s | <isi informasi>`", topic, topic), nil

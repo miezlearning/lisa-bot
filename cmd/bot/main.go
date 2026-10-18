@@ -114,7 +114,7 @@ func main() {
 	geminiKey := os.Getenv("GEMINI_API_KEY")
 	if geminiKey != "" {
 		llmFallback = nlu.NewGeminiClient(geminiKey)
-		fmt.Println("✨ Google Gemini AI aktif sebagai smart conversational fallback.")
+		fmt.Println("✨ Otak AI Lisa aktif untuk percakapan cerdas & asisten pintar.")
 	}
 	engine := nlu.NewEngine(spellchecker, loc, llmFallback)
 
