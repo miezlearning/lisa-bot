@@ -136,10 +136,14 @@ func (h *Handler) handleQuery(ctx *router.MessageContext) (string, error) {
 
 	// 3. Fallback ke LLM Eksternal (Gemini Free) jika diaktifkan
 	if h.llm != nil {
+		fmt.Printf("🤖 [Gemini AI] Memproses pertanyaan bebas: %q...\n", ctx.RawMessage)
 		llmPrompt := fmt.Sprintf("Pengguna bertanya: %q (teks normalisasi: %q). Jawablah pertanyaan ini sebagai asisten perkuliahan.", ctx.RawMessage, topicClean)
-		if llmResp, err := h.llm.GenerateResponse(ctx.Context, llmPrompt); err == nil && strings.TrimSpace(llmResp) != "" {
+		llmResp, err := h.llm.GenerateResponse(ctx.Context, llmPrompt)
+		if err == nil && strings.TrimSpace(llmResp) != "" {
+			fmt.Println("✨ [Gemini AI] Berhasil menghasilkan respons cerdas.")
 			return llmResp, nil
 		}
+		fmt.Printf("⚠️ [Gemini AI Error]: %v\n", err)
 	}
 
 	return fmt.Sprintf("Maaf, informasi mengenai *%s* belum ada di database. Kamu bisa menambahkannya dengan perintah:\n`@Bot tambah info %s | <isi informasi>`", topic, topic), nil
