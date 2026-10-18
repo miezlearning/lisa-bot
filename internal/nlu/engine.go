@@ -18,6 +18,7 @@ const (
 	IntentKnowledgeAdd     IntentType = "knowledge.add"
 	IntentBotHelp          IntentType = "bot.help"
 	IntentAdminCommand     IntentType = "admin.command"
+	IntentConversational   IntentType = "conversational"
 	IntentUnknown          IntentType = "unknown"
 )
 
@@ -146,26 +147,21 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 		return result, nil
 	}
 
-	// 4. Intent Schedule Query vs Knowledge Query
-	hasScheduleSignals := false
-	if result.Entities.TargetDay > 0 ||
-		result.Entities.RelativeTime != RelativeNone ||
-		result.Entities.Room != "" ||
-		containsAny(lower, []string{"jadwal", "matkul", "kelas", "kuliah", "masuk", "ruang"}) {
-		hasScheduleSignals = true
-	}
+	// 4. Intent Schedule Query vs Knowledge Query vs Conversational
+	hasExplicitScheduleWord := containsAny(lower, []string{"jadwal", "matkul", "mata kuliah", "kelas", "kuliah", "pelajaran"})
+	hasDayWithInquiry := (result.Entities.TargetDay > 0 || result.Entities.RelativeTime != RelativeNone) &&
+		(hasExplicitScheduleWord || containsAny(lower, []string{"ada apa", "apa aja", "apa saja", "masuk jam", "jam berapa", "ada kelas", "ada kuliah"}))
+	hasSubjectInquiry := result.Entities.Subject != "" &&
+		(hasExplicitScheduleWord || containsAny(lower, []string{"kapan", "hari apa", "jam berapa", "ruang apa", "dimana", "di mana"}))
 
-	hasKnowledgeSignals := false
-	if containsAny(lower, []string{"larangan", "aturan", "praktikum", "tata tertib", "lab", "ujian", "uas", "uts", "dosen", "syarat", "beasiswa"}) {
-		hasKnowledgeSignals = true
-	}
-
-	if hasScheduleSignals {
+	if hasExplicitScheduleWord || hasDayWithInquiry || hasSubjectInquiry {
 		result.Intent = IntentScheduleQuery
 		result.Confidence = 0.90
 		return result, nil
 	}
 
+	// 5. Explicit Knowledge Base Signals (Rules, Prohibitions, Lab Regulations)
+	hasKnowledgeSignals := containsAny(lower, []string{"larangan", "aturan", "praktikum", "tata tertib", "lab", "laboratorium", "syarat", "ujian", "uts", "uas", "beasiswa", "biaya"})
 	if hasKnowledgeSignals {
 		result.Intent = IntentKnowledgeQuery
 		result.Confidence = 0.85
@@ -173,17 +169,9 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 		return result, nil
 	}
 
-	// If subject identified without other signals (e.g. "kapan kelas pih?")
-	if result.Entities.Subject != "" {
-		result.Intent = IntentScheduleQuery
-		result.Confidence = 0.80
-		return result, nil
-	}
-
-	// Fallback to Knowledge Query or Unknown
-	result.Intent = IntentKnowledgeQuery
-	result.Confidence = 0.50
-	result.Entities.KnowledgeTopic = normalized
+	// 6. Conversational / General Inquiries (Handled by Gemini AI or Lisa Persona)
+	result.Intent = IntentConversational
+	result.Confidence = 0.80
 	return result, nil
 }
 

@@ -301,12 +301,16 @@ func (db *DB) GetAllKnowledge(ctx context.Context) ([]KnowledgeItem, error) {
 // FindKnowledge searches for knowledge items matching topic or keywords.
 func (db *DB) FindKnowledge(ctx context.Context, term string) ([]KnowledgeItem, error) {
 	cleaned := strings.ToLower(strings.TrimSpace(term))
+	if cleaned == "" {
+		return nil, nil
+	}
 	query := `SELECT id, topic, keywords, content, updated_at 
 	          FROM knowledge_base 
-	          WHERE LOWER(topic) LIKE ? OR LOWER(keywords) LIKE ? OR LOWER(content) LIKE ?`
+	          WHERE LOWER(topic) = ? OR LOWER(topic) LIKE ? OR LOWER(keywords) LIKE ?
+	          ORDER BY CASE WHEN LOWER(topic) = ? THEN 1 WHEN LOWER(topic) LIKE ? THEN 2 ELSE 3 END ASC`
 
 	pattern := "%" + cleaned + "%"
-	rows, err := db.Conn.QueryContext(ctx, query, pattern, pattern, pattern)
+	rows, err := db.Conn.QueryContext(ctx, query, cleaned, pattern, pattern, cleaned, pattern)
 	if err != nil {
 		return nil, err
 	}

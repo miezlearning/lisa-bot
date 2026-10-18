@@ -39,7 +39,8 @@ func (h *Handler) CanHandle(result *nlu.NLUResult) bool {
 	}
 	return result.Intent == nlu.IntentKnowledgeQuery ||
 		result.Intent == nlu.IntentKnowledgeAdd ||
-		result.Intent == nlu.IntentBotHelp
+		result.Intent == nlu.IntentBotHelp ||
+		result.Intent == nlu.IntentConversational
 }
 
 func (h *Handler) Execute(ctx *router.MessageContext) (string, error) {
@@ -52,9 +53,38 @@ func (h *Handler) Execute(ctx *router.MessageContext) (string, error) {
 		return h.handleAddInfo(ctx)
 	case nlu.IntentKnowledgeQuery:
 		return h.handleQuery(ctx)
+	case nlu.IntentConversational:
+		return h.handleConversation(ctx)
 	default:
 		return "Perintah informasi tidak dikenali.", nil
 	}
+}
+
+func (h *Handler) handleConversation(ctx *router.MessageContext) (string, error) {
+	// 1. Jika Gemini AI aktif, jawab secara cerdas & natural
+	if h.llm != nil {
+		fmt.Printf("🤖 [Gemini AI] Menjawab percakapan: %q...\n", ctx.RawMessage)
+		resp, err := h.llm.GenerateResponse(ctx.Context, ctx.RawMessage)
+		if err == nil && strings.TrimSpace(resp) != "" {
+			fmt.Println("✨ [Gemini AI] Berhasil membalas percakapan.")
+			return resp, nil
+		}
+		fmt.Printf("⚠️ [Gemini AI Error]: %v\n", err)
+	}
+
+	// 2. Fallback jika tanpa Gemini AI (persona Lisa yang ramah)
+	lower := strings.ToLower(ctx.CleanMessage)
+	if strings.Contains(lower, "siapa") || strings.Contains(lower, "nama") || strings.Contains(lower, "tugas") {
+		return "Halo! Aku *Lisa*, asisten perkuliahan WhatsApp kamu. 🎓\n\n" +
+			"Aku bisa bantu mengecek jadwal kuliah harian, aturan praktikum/lab, dan informasi seputar perkuliahan.\n" +
+			"Ketik *menu* untuk melihat panduan lengkap apa saja yang bisa aku bantu ya!", nil
+	}
+
+	if strings.Contains(lower, "halo") || strings.Contains(lower, "hai") || strings.Contains(lower, "pagi") || strings.Contains(lower, "siang") || strings.Contains(lower, "malam") {
+		return "Halo! Ada yang bisa Lisa bantu seputar jadwal atau info kuliah hari ini? 😊\nKetik *jadwal hari ini* atau *menu* ya!", nil
+	}
+
+	return "Halo! Lisa siap membantu seputar jadwal kuliah dan informasi perkuliahan. Coba tanyakan *jadwal besok* atau ketik *menu* untuk panduan lengkapnya ya!", nil
 }
 
 func (h *Handler) handleHelp(ctx *router.MessageContext) (string, error) {
