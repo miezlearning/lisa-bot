@@ -19,7 +19,32 @@ import (
 	"whatsapp-bot/internal/whatsapp"
 )
 
+// loadEnv reads a simple key=value .env file if it exists and sets environment variables.
+func loadEnv(filepath string) {
+	data, err := os.ReadFile(filepath)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			k := strings.TrimSpace(parts[0])
+			v := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
+			if os.Getenv(k) == "" {
+				_ = os.Setenv(k, v)
+			}
+		}
+	}
+}
+
 func main() {
+	loadEnv(".env")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -65,7 +90,15 @@ func main() {
 	if adminEnv != "" {
 		adminList := strings.Split(adminEnv, ",")
 		_ = database.SeedInitialAdmins(ctx, db, adminList)
-		fmt.Printf("👑 Seeding %d admin dari environment.\n", len(adminList))
+		fmt.Printf("👑 Seeding %d admin dari environment (.env).\n", len(adminList))
+	}
+
+	adminCount, _ := db.GetAdminCount(ctx)
+	if adminCount == 0 {
+		fmt.Println("⚠️ PERHATIAN: Belum ada admin terdaftar di database.")
+		fmt.Println("   Ketik '@Bot izinkan grup' di grup atau chat untuk klaim admin pertama.")
+	} else {
+		fmt.Printf("👑 Terdaftar %d admin di database.\n", adminCount)
 	}
 
 	// 4. Inisialisasi QWERTY SpellChecker & Vocabulary Harvester

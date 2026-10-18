@@ -445,3 +445,10 @@ func (db *DB) GetAdmins(ctx context.Context) ([]BotAdmin, error) {
 	}
 	return list, rows.Err()
 }
+
+// GetAdminCount returns the total number of registered administrators.
+func (db *DB) GetAdminCount(ctx context.Context) (int, error) {
+	var count int
+	err := db.Conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM bot_admins`).Scan(&count)
+	return count, err
+}

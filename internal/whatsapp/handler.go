@@ -51,11 +51,14 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		return
 	}
 
-	// 2. Extract message text
+	// 2. Extract message text (supports normal, ephemeral/disappearing, view once, and caption messages)
 	rawText := extractMessageText(evt.Message)
 	if strings.TrimSpace(rawText) == "" {
 		return
 	}
+
+	fmt.Printf("\n📩 [Pesan Masuk] Dari: %s | Chat: %s (Grup: %v)\n   Teks: %q\n",
+		evt.Info.Sender.String(), evt.Info.Chat.String(), evt.Info.IsGroup, rawText)
 
 	ctx := context.Background()
 
@@ -65,20 +68,41 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		senderPhone := evt.Info.Sender.User
 		lowerRaw := strings.ToLower(rawText)
 
+		// Check registered admins count
+		adminCount, _ := h.db.GetAdminCount(ctx)
+
+		// Bootstrap: Jika belum ada admin terdaftar di database sama sekali
+		if adminCount == 0 {
+			if strings.Contains(lowerRaw, "izinkan grup") || strings.Contains(lowerRaw, "klaim admin") {
+				_ = h.db.AddAdmin(ctx, senderPhone, evt.Info.PushName, "bootstrap")
+				fmt.Printf("👑 [Bootstrap] Admin pertama otomatis didaftarkan: %s (%s)\n", senderPhone, evt.Info.PushName)
+			}
+		}
+
 		// Check if group is authorized in database
 		isAllowed := h.db.IsGroupAllowed(ctx, chatJIDStr)
 		if !isAllowed {
-			// Only allow whitelisting command from registered admin in an unauthorized group
 			isAdmin := h.db.IsAdmin(ctx, senderPhone)
 			isAllowCmd := strings.Contains(lowerRaw, "izinkan grup") || strings.Contains(lowerRaw, "allow group")
-			if !isAdmin || !isAllowCmd {
-				// Silently ignore to avoid spamming unauthorized groups
+
+			if isAdmin && isAllowCmd {
+				fmt.Printf("🔓 [Whitelist] Memproses perintah izin grup dari admin: %s\n", senderPhone)
+			} else {
+				// Jika grup belum diizinkan dan bot belum punya admin sama sekali, beri petunjuk
+				if adminCount == 0 && (strings.Contains(lowerRaw, "@bot") || strings.HasPrefix(lowerRaw, "!")) {
+					fmt.Printf("⚠️ Grup %s belum diizinkan dan belum ada admin terdaftar.\n", chatJIDStr)
+					h.sendReply(evt, "⚠️ *Bot Belum Diizinkan di Grup Ini*\n\nBelum ada admin yang didaftarkan di sistem. Untuk mengizinkan grup ini dan mendaftarkan kamu sebagai admin pertama, ketik:\n`@Bot izinkan grup`")
+					return
+				}
+
+				fmt.Printf("🚫 [Abaikan] Grup %s belum diizinkan dalam database whitelist.\n", chatJIDStr)
 				return
 			}
 		}
 
 		// Check if bot was mentioned or replied to in the group
 		if !h.shouldRespondInGroup(evt, rawText) {
+			fmt.Printf("ℹ️ [Abaikan] Bot tidak di-mention atau di-reply di grup %s.\n", chatJIDStr)
 			return
 		}
 	}
@@ -92,7 +116,7 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 	// 5. Process through Deterministic NLU Engine
 	nluResult, err := h.engine.Process(ctx, cleanText)
 	if err != nil {
-		fmt.Printf("NLU processing error: %v\n", err)
+		fmt.Printf("❌ NLU processing error: %v\n", err)
 		return
 	}
 
@@ -128,14 +152,9 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 func (h *EventHandler) shouldRespondInGroup(evt *events.Message, rawText string) bool {
 	lower := strings.ToLower(strings.TrimSpace(rawText))
 
-	// Condition 3: Prefix @bot or ! or /
-	if strings.HasPrefix(lower, "@bot") || strings.HasPrefix(lower, "!") || strings.HasPrefix(lower, "/") {
+	// Prefix @bot, !, or /
+	if strings.Contains(lower, "@bot") || strings.HasPrefix(lower, "!") || strings.HasPrefix(lower, "/") {
 		return true
-	}
-
-	contextInfo := getContextInfo(evt.Message)
-	if contextInfo == nil {
-		return false
 	}
 
 	var botPhoneJID types.JID
@@ -146,6 +165,16 @@ func (h *EventHandler) shouldRespondInGroup(evt *events.Message, rawText string)
 	var botLID types.JID
 	if !h.client.Store.LID.IsEmpty() {
 		botLID = h.client.Store.LID.ToNonAD()
+	}
+
+	// Check if text directly contains bot phone number e.g. @6285928105840
+	if botPhoneJID.User != "" && strings.Contains(lower, "@"+botPhoneJID.User) {
+		return true
+	}
+
+	contextInfo := getContextInfo(evt.Message)
+	if contextInfo == nil {
+		return false
 	}
 
 	// Condition 1: Bot is mentioned in MentionedJID slice
@@ -171,28 +200,61 @@ func (h *EventHandler) shouldRespondInGroup(evt *events.Message, rawText string)
 
 func (h *EventHandler) sendReply(evt *events.Message, text string) {
 	stanzaID := evt.Info.ID
-	participant := evt.Info.Sender.ToNonAD().String()
+	var respMsg *waE2E.Message
 
-	respMsg := &waE2E.Message{
-		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-			Text: &text,
-			ContextInfo: &waE2E.ContextInfo{
-				StanzaID:      &stanzaID,
-				Participant:   &participant,
-				QuotedMessage: evt.Message,
+	if evt.Info.IsGroup {
+		participant := evt.Info.Sender.ToNonAD().String()
+		respMsg = &waE2E.Message{
+			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+				Text: &text,
+				ContextInfo: &waE2E.ContextInfo{
+					StanzaID:      &stanzaID,
+					Participant:   &participant,
+					QuotedMessage: evt.Message,
+				},
 			},
-		},
+		}
+	} else {
+		// In private chat, Participant must NOT be set
+		respMsg = &waE2E.Message{
+			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+				Text: &text,
+				ContextInfo: &waE2E.ContextInfo{
+					StanzaID:      &stanzaID,
+					QuotedMessage: evt.Message,
+				},
+			},
+		}
 	}
 
 	_, err := h.client.SendMessage(context.Background(), evt.Info.Chat, respMsg)
 	if err != nil {
-		fmt.Printf("Failed to send WhatsApp message: %v\n", err)
+		fmt.Printf("⚠️ Gagal kirim pesan quoted: %v, mencoba pesan unquoted...\n", err)
+		_, errFallback := h.client.SendMessage(context.Background(), evt.Info.Chat, &waE2E.Message{Conversation: &text})
+		if errFallback != nil {
+			fmt.Printf("❌ Fallback kirim pesan juga gagal: %v\n", errFallback)
+			return
+		}
 	}
+
+	fmt.Printf("📤 [Balasan Terkirim] Ke: %s\n", evt.Info.Chat.String())
 }
 
 func extractMessageText(msg *waE2E.Message) string {
 	if msg == nil {
 		return ""
+	}
+	// Unwrap ephemeral message (disappearing messages)
+	if msg.EphemeralMessage != nil && msg.EphemeralMessage.Message != nil {
+		msg = msg.EphemeralMessage.Message
+	}
+	// Unwrap view once message
+	if msg.ViewOnceMessage != nil && msg.ViewOnceMessage.Message != nil {
+		msg = msg.ViewOnceMessage.Message
+	}
+	// Unwrap document with caption
+	if msg.DocumentWithCaptionMessage != nil && msg.DocumentWithCaptionMessage.Message != nil {
+		msg = msg.DocumentWithCaptionMessage.Message
 	}
 	if msg.Conversation != nil && *msg.Conversation != "" {
 		return *msg.Conversation
@@ -206,6 +268,12 @@ func extractMessageText(msg *waE2E.Message) string {
 func getContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 	if msg == nil {
 		return nil
+	}
+	if msg.EphemeralMessage != nil && msg.EphemeralMessage.Message != nil {
+		msg = msg.EphemeralMessage.Message
+	}
+	if msg.ViewOnceMessage != nil && msg.ViewOnceMessage.Message != nil {
+		msg = msg.ViewOnceMessage.Message
 	}
 	if msg.ExtendedTextMessage != nil {
 		return msg.ExtendedTextMessage.ContextInfo
