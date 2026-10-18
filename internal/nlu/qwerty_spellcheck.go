@@ -76,13 +76,31 @@ func NewSpellChecker() *SpellChecker {
 		"hr":     "hari",
 		"skrg":   "sekarang",
 		"skr":    "sekarang",
-		"kpn":    "kapan",
-		"brp":    "berapa",
-		"jdwl":   "jadwal",
-		"jdw":    "jadwal",
-		"matkul": "jadwal",
-		"mk":     "jadwal",
-		"snin":   "senin",
+		"kpn":       "kapan",
+		"brp":       "berapa",
+		"jdwl":      "jadwal",
+		"jdw":       "jadwal",
+		"jdwal":     "jadwal",
+		"jdwalku":   "jadwal",
+		"jadwalku":  "jadwal",
+		"jdwlku":    "jadwal",
+		"jadwalmu":  "jadwal",
+		"jdwlmu":    "jadwal",
+		"jadwalnya": "jadwal",
+		"jdwlnya":   "jadwal",
+		"kelasku":   "kelas",
+		"kelasnya":  "kelas",
+		"matkulku":  "jadwal",
+		"matkulnya": "jadwal",
+		"kuliahku":  "kuliah",
+		"kuliahnya": "kuliah",
+		"tugasku":   "tugas",
+		"tugasnya":  "tugas",
+		"dosenku":   "dosen",
+		"dosennya":  "dosen",
+		"matkul":    "jadwal",
+		"mk":        "jadwal",
+		"snin":      "senin",
 		"slasa":  "selasa",
 		"sls":    "selasa",
 		"rbu":    "rabu",
@@ -182,11 +200,23 @@ func (sc *SpellChecker) AddSlang(slang, target string) {
 	sc.slangMap[strings.ToLower(slang)] = strings.ToLower(target)
 }
 
-// CleanMentions strips WhatsApp mention tags like @bot, @628xxx, @12345xxx, etc.
+// CleanMentions strips WhatsApp mention tags like @bot, @lisa, @AI Lisa, @628xxx, @12345xxx, etc.
 func CleanMentions(text string) string {
-	mentionRegex := regexp.MustCompile(`(?i)@(\d+|bot)`)
+	mentionRegex := regexp.MustCompile(`(?i)@(?:ai\s+lisa|lisa|bot|[a-zA-Z0-9_\.\-]+)`)
 	cleaned := mentionRegex.ReplaceAllString(text, "")
 	return strings.TrimSpace(cleaned)
+}
+
+// stripIndonesianClitic strips possessive and definite clitics (-nya, -ku, -mu) from Indonesian words.
+func stripIndonesianClitic(w string) string {
+	runes := []rune(w)
+	if strings.HasSuffix(w, "nya") && len(runes) > 4 {
+		return string(runes[:len(runes)-3])
+	}
+	if (strings.HasSuffix(w, "ku") || strings.HasSuffix(w, "mu")) && len(runes) > 3 {
+		return string(runes[:len(runes)-2])
+	}
+	return w
 }
 
 // SquashRepeatingCharacters reduces any sequence of identical consecutive runes to a single rune.
@@ -262,6 +292,21 @@ func (sc *SpellChecker) CorrectSentence(input string) (string, []string) {
 		if sc.vocabulary[wordCore] {
 			correctedWords = append(correctedWords, prefix+wordCore+suffix)
 			continue
+		}
+
+		// Step 3b: Indonesian Enclitic Pronoun Stripping (-ku, -mu, -nya)
+		stem := stripIndonesianClitic(squashed)
+		if stem != squashed {
+			if replacement, ok := sc.slangMap[stem]; ok {
+				correctedWords = append(correctedWords, prefix+replacement+suffix)
+				corrections = append(corrections, rawWord+" -> "+replacement)
+				continue
+			}
+			if sc.vocabulary[stem] {
+				correctedWords = append(correctedWords, prefix+stem+suffix)
+				corrections = append(corrections, rawWord+" -> "+stem)
+				continue
+			}
 		}
 
 		// Step 4: QWERTY-Weighted Levenshtein Fuzzy Search

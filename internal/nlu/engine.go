@@ -64,6 +64,13 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 		trimmed = strings.TrimSpace(trimmed[1:])
 	}
 
+	// Strip conversational bot invocation at boundaries (e.g. "lisa, jdwl bsk apa" or "apa jdwalku besok lisa")
+	botCallRegex := regexp.MustCompile(`(?i)(?:^(?:hai\s+|halo\s+)?(?:ai\s+)?lisa[,\s:]*|[,\s:]+(?:ai\s+)?lisa$)`)
+	cleanedInvocation := strings.TrimSpace(botCallRegex.ReplaceAllString(trimmed, ""))
+	if cleanedInvocation != "" {
+		trimmed = cleanedInvocation
+	}
+
 	// 2. Perform 3-Layer Spellcheck & Normalization
 	normalized, corrections := e.spellchecker.CorrectSentence(trimmed)
 	lower := strings.ToLower(normalized)
@@ -149,11 +156,22 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 	}
 
 	// 4. Intent Schedule Query vs Knowledge Query vs Conversational
-	hasExplicitScheduleWord := containsAny(lower, []string{"jadwal", "matkul", "mata kuliah", "kelas", "kuliah", "pelajaran"})
+	hasExplicitScheduleWord := containsAny(lower, []string{
+		"jadwal", "jdwal", "jdwl", "matkul", "mata kuliah", "kelas", "kuliah", "pelajaran",
+	}) || containsAny(rawLower, []string{
+		"jadwal", "jdwal", "jdwl", "matkul", "mata kuliah", "kelas", "kuliah", "pelajaran",
+	})
+
+	shortDayInquiry := regexp.MustCompile(`(?i)^(?:(?:ada\s+)?apa\s+(?:besok|hari ini|hr ini|sekarang|lusa|senin|selasa|rabu|kamis|jumat|sabtu|minggu)|(?:besok|hari ini|hr ini|sekarang|lusa|senin|selasa|rabu|kamis|jumat|sabtu|minggu)\s+(?:ada\s+)?apa(?:\s+aja|\s+saja)?)\??$`)
+
 	hasDayWithInquiry := (result.Entities.TargetDay > 0 || result.Entities.RelativeTime != RelativeNone) &&
-		(hasExplicitScheduleWord || containsAny(lower, []string{"ada apa", "apa aja", "apa saja", "masuk jam", "jam berapa", "ada kelas", "ada kuliah"}))
+		(hasExplicitScheduleWord || shortDayInquiry.MatchString(lower) || shortDayInquiry.MatchString(rawLower) || containsAny(lower, []string{
+			"ada apa", "apa aja", "apa saja", "masuk jam", "jam berapa", "ada kelas", "ada kuliah", "masuk apa", "masuk kapan",
+		}))
 	hasSubjectInquiry := result.Entities.Subject != "" &&
-		(hasExplicitScheduleWord || containsAny(lower, []string{"kapan", "hari apa", "jam berapa", "ruang apa", "dimana", "di mana"}))
+		(hasExplicitScheduleWord || containsAny(lower, []string{
+			"kapan", "hari apa", "jam berapa", "ruang apa", "dimana", "di mana",
+		}))
 
 	if hasExplicitScheduleWord || hasDayWithInquiry || hasSubjectInquiry {
 		result.Intent = IntentScheduleQuery

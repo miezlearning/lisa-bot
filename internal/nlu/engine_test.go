@@ -38,6 +38,26 @@ func TestEngineClassification(t *testing.T) {
 			input:          "kapan kelas pih?",
 			expectedIntent: IntentScheduleQuery,
 		},
+		{
+			input:          "apa jdwalku besok @AI Lisa",
+			expectedIntent: IntentScheduleQuery,
+		},
+		{
+			input:          "apa jadwalku",
+			expectedIntent: IntentScheduleQuery,
+		},
+		{
+			input:          "jadwalku besok",
+			expectedIntent: IntentScheduleQuery,
+		},
+		{
+			input:          "besok apa",
+			expectedIntent: IntentScheduleQuery,
+		},
+		{
+			input:          "besok ada apa",
+			expectedIntent: IntentScheduleQuery,
+		},
 	}
 
 	for _, tc := range tests {
