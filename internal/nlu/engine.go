@@ -17,6 +17,7 @@ const (
 	IntentKnowledgeQuery   IntentType = "knowledge.query"
 	IntentKnowledgeAdd     IntentType = "knowledge.add"
 	IntentBotHelp          IntentType = "bot.help"
+	IntentAdminCommand     IntentType = "admin.command"
 	IntentUnknown          IntentType = "unknown"
 )
 
@@ -65,12 +66,28 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 	// 2. Perform 3-Layer Spellcheck & Normalization
 	normalized, corrections := e.spellchecker.CorrectSentence(trimmed)
 	lower := strings.ToLower(normalized)
+	rawLower := strings.ToLower(trimmed)
 
 	result := &NLUResult{
 		RawInput:    rawText,
 		Normalized:  normalized,
 		Corrections: corrections,
 		Entities:    ExtractEntities(normalized, e.timezone),
+	}
+
+	// Check Admin Commands: "izinkan grup", "cabut grup", "daftar grup", "tambah admin", "hapus admin", "daftar admin"
+	if strings.HasPrefix(lower, "izinkan grup") || strings.HasPrefix(rawLower, "izinkan grup") ||
+		strings.HasPrefix(lower, "cabut grup") || strings.HasPrefix(rawLower, "cabut grup") ||
+		strings.HasPrefix(lower, "daftar grup") || strings.HasPrefix(rawLower, "daftar grup") ||
+		strings.HasPrefix(lower, "tambah admin") || strings.HasPrefix(rawLower, "tambah admin") ||
+		strings.HasPrefix(lower, "hapus admin") || strings.HasPrefix(rawLower, "hapus admin") ||
+		strings.HasPrefix(lower, "daftar admin") || strings.HasPrefix(rawLower, "daftar admin") ||
+		strings.HasPrefix(lower, "allow group") || strings.HasPrefix(rawLower, "allow group") ||
+		strings.HasPrefix(lower, "revoke group") || strings.HasPrefix(rawLower, "revoke group") {
+		result.Intent = IntentAdminCommand
+		result.Confidence = 1.0
+		result.Entities.RawPayload = trimmed
+		return result, nil
 	}
 
 	// 3. Command Regex Checkers

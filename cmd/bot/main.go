@@ -6,10 +6,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"whatsapp-bot/internal/database"
+	"whatsapp-bot/internal/modules/admin"
 	"whatsapp-bot/internal/modules/knowledge"
 	"whatsapp-bot/internal/modules/schedule"
 	"whatsapp-bot/internal/nlu"
@@ -25,10 +27,10 @@ func main() {
 	fmt.Println("🚀 Memulai AI Lisa - WhatsApp Assistant Kuliah...")
 	fmt.Println("==================================================")
 
-	// 1. Load Timezone Configuration
+	// 1. Konfigurasi Timezone
 	tzName := os.Getenv("TIMEZONE")
 	if tzName == "" {
-		tzName = "Asia/Makassar" // Default timezone
+		tzName = "Asia/Makassar"
 	}
 	loc, err := time.LoadLocation(tzName)
 	if err != nil {
@@ -40,7 +42,7 @@ func main() {
 	}
 	fmt.Printf("🕒 Timezone aktif: %s\n", loc.String())
 
-	// 2. Initialize Database & Run Auto-Migration
+	// 2. Inisialisasi Database SQLite & Auto-Migration
 	dbPath := os.Getenv("DB_PATH")
 	if dbPath == "" {
 		dbPath = "bot.db"
@@ -52,13 +54,21 @@ func main() {
 	defer db.Close()
 	fmt.Println("📦 Database SQLite & Auto-Migration siap.")
 
-	// 3. Seed Initial Schedules & Knowledge Base
+	// 3. Seeding Data Awal Jadwal & Knowledge Base
 	if err := database.SeedInitialData(ctx, db); err != nil {
 		log.Fatalf("❌ Gagal seeding data awal: %v", err)
 	}
 	fmt.Println("🌱 Data awal jadwal & aturan berhasil diverifikasi/seeded.")
 
-	// 4. Initialize QWERTY-Aware SpellChecker & Vocabulary Harvester
+	// Seeding Admin Numbers jika ada di ENV (e.g. ADMIN_NUMBERS=62812345678,62898765432)
+	adminEnv := os.Getenv("ADMIN_NUMBERS")
+	if adminEnv != "" {
+		adminList := strings.Split(adminEnv, ",")
+		_ = database.SeedInitialAdmins(ctx, db, adminList)
+		fmt.Printf("👑 Seeding %d admin dari environment.\n", len(adminList))
+	}
+
+	// 4. Inisialisasi QWERTY SpellChecker & Vocabulary Harvester
 	spellchecker := nlu.NewSpellChecker()
 	if err := database.HarvestVocabulary(ctx, db, spellchecker); err != nil {
 		log.Printf("⚠️ Peringatan: harvest vocabulary menemui kendala: %v", err)
@@ -66,10 +76,10 @@ func main() {
 		fmt.Println("🧠 Dynamic Vocabulary & Course Acronyms berhasil di-harvest.")
 	}
 
-	// 5. Initialize Deterministic NLU Engine
+	// 5. Inisialisasi NLU Engine
 	engine := nlu.NewEngine(spellchecker, loc, nil)
 
-	// 6. Initialize Router Registry & Register Domain Modules
+	// 6. Inisialisasi Registry Router & Modul Domain
 	botRouter := router.NewRouter()
 
 	schedHandler := schedule.NewHandler(db, spellchecker, loc)
@@ -78,9 +88,12 @@ func main() {
 	knowHandler := knowledge.NewHandler(db, spellchecker)
 	botRouter.Register(knowHandler)
 
-	fmt.Println("🧩 Modul Schedule dan Knowledge Base berhasil diregistrasi.")
+	adminHandler := admin.NewHandler(db)
+	botRouter.Register(adminHandler)
 
-	// 7. Initialize WhatsApp Client
+	fmt.Println("🧩 Modul Schedule, Knowledge Base, dan Admin berhasil diregistrasi.")
+
+	// 7. Inisialisasi Whatsmeow WhatsApp Client
 	logLevel := os.Getenv("LOG_LEVEL")
 	if logLevel == "" {
 		logLevel = "INFO"
@@ -91,8 +104,8 @@ func main() {
 		log.Fatalf("❌ Gagal membuat WhatsApp client: %v", err)
 	}
 
-	// 8. Register Event Handler with JID/LID Mention Awareness
-	eventHandler := whatsapp.NewEventHandler(waClient.WAClient, engine, botRouter)
+	// 8. Registrasi Event Handler (JID/LID Mention Aware + Group Whitelist Restrictor)
+	eventHandler := whatsapp.NewEventHandler(waClient.WAClient, db, engine, botRouter)
 	eventHandler.Register()
 
 	// 9. Connect WhatsApp Client

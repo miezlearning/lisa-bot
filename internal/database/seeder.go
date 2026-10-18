@@ -138,3 +138,16 @@ func HarvestVocabulary(ctx context.Context, db *DB, sc *nlu.SpellChecker) error 
 	sc.LearnFromDatabaseTexts(texts)
 	return nil
 }
+
+// SeedInitialAdmins registers initial administrators from configuration or environment.
+func SeedInitialAdmins(ctx context.Context, db *DB, adminNumbers []string) error {
+	for _, rawNum := range adminNumbers {
+		clean := strings.TrimSpace(rawNum)
+		if clean != "" {
+			if err := db.AddAdmin(ctx, clean, "Admin Awal", "system"); err != nil {
+				return fmt.Errorf("gagal seeding admin %s: %w", clean, err)
+			}
+		}
+	}
+	return nil
+}

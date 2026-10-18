@@ -42,6 +42,22 @@ type KnowledgeItem struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// AllowedGroup represents a group chat authorized to interact with the bot.
+type AllowedGroup struct {
+	GroupJID  string    `json:"group_jid"`
+	GroupName string    `json:"group_name"`
+	AddedBy   string    `json:"added_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// BotAdmin represents an authorized phone number that can manage bot settings.
+type BotAdmin struct {
+	PhoneNumber string    `json:"phone_number"` // Normalised digits e.g. "62812345678"
+	Name        string    `json:"name"`
+	AddedBy     string    `json:"added_by"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // DB wraps the sql.DB instance and provides access methods.
 type DB struct {
 	Conn *sql.DB
@@ -102,6 +118,18 @@ func (db *DB) autoMigrate(ctx context.Context) error {
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_knowledge_topic ON knowledge_base(topic);`,
+		`CREATE TABLE IF NOT EXISTS allowed_groups (
+			group_jid TEXT PRIMARY KEY,
+			group_name TEXT,
+			added_by TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS bot_admins (
+			phone_number TEXT PRIMARY KEY,
+			name TEXT,
+			added_by TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
 	}
 
 	for _, query := range queries {
@@ -306,4 +334,114 @@ func (db *DB) UpsertKnowledge(ctx context.Context, topic, keywords, content stri
 	             updated_at = CURRENT_TIMESTAMP`
 	_, err := db.Conn.ExecContext(ctx, query, strings.ToLower(strings.TrimSpace(topic)), keywords, content)
 	return err
+}
+
+// NormalizePhoneNumber cleans a phone number to digits only (e.g. +62 812-3456 -> 628123456).
+func NormalizePhoneNumber(phone string) string {
+	var b strings.Builder
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	s := b.String()
+	if strings.HasPrefix(s, "08") {
+		s = "628" + s[2:]
+	}
+	return s
+}
+
+// IsGroupAllowed checks if a group JID is authorized to interact with the bot.
+func (db *DB) IsGroupAllowed(ctx context.Context, groupJID string) bool {
+	var dummy int
+	err := db.Conn.QueryRowContext(ctx, `SELECT 1 FROM allowed_groups WHERE group_jid = ?`, groupJID).Scan(&dummy)
+	return err == nil
+}
+
+// AllowGroup adds or updates an authorized group.
+func (db *DB) AllowGroup(ctx context.Context, groupJID, groupName, addedBy string) error {
+	query := `INSERT INTO allowed_groups (group_jid, group_name, added_by, created_at) 
+	          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+	          ON CONFLICT(group_jid) DO UPDATE SET group_name = excluded.group_name`
+	_, err := db.Conn.ExecContext(ctx, query, groupJID, groupName, addedBy)
+	return err
+}
+
+// RevokeGroup removes a group from the whitelist.
+func (db *DB) RevokeGroup(ctx context.Context, groupJID string) error {
+	query := `DELETE FROM allowed_groups WHERE group_jid = ?`
+	_, err := db.Conn.ExecContext(ctx, query, groupJID)
+	return err
+}
+
+// GetAllowedGroups returns all whitelisted groups.
+func (db *DB) GetAllowedGroups(ctx context.Context) ([]AllowedGroup, error) {
+	query := `SELECT group_jid, group_name, added_by, created_at FROM allowed_groups ORDER BY created_at DESC`
+	rows, err := db.Conn.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []AllowedGroup
+	for rows.Next() {
+		var g AllowedGroup
+		if err := rows.Scan(&g.GroupJID, &g.GroupName, &g.AddedBy, &g.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, g)
+	}
+	return list, rows.Err()
+}
+
+// IsAdmin checks if the given phone number belongs to a registered admin.
+func (db *DB) IsAdmin(ctx context.Context, phone string) bool {
+	normalized := NormalizePhoneNumber(phone)
+	if normalized == "" {
+		return false
+	}
+	var dummy int
+	err := db.Conn.QueryRowContext(ctx, `SELECT 1 FROM bot_admins WHERE phone_number = ?`, normalized).Scan(&dummy)
+	return err == nil
+}
+
+// AddAdmin registers a new admin phone number.
+func (db *DB) AddAdmin(ctx context.Context, phone, name, addedBy string) error {
+	normalized := NormalizePhoneNumber(phone)
+	if normalized == "" {
+		return fmt.Errorf("nomor telepon admin tidak valid")
+	}
+	query := `INSERT INTO bot_admins (phone_number, name, added_by, created_at) 
+	          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+	          ON CONFLICT(phone_number) DO UPDATE SET name = excluded.name`
+	_, err := db.Conn.ExecContext(ctx, query, normalized, name, addedBy)
+	return err
+}
+
+// RemoveAdmin deletes an admin phone number.
+func (db *DB) RemoveAdmin(ctx context.Context, phone string) error {
+	normalized := NormalizePhoneNumber(phone)
+	query := `DELETE FROM bot_admins WHERE phone_number = ?`
+	_, err := db.Conn.ExecContext(ctx, query, normalized)
+	return err
+}
+
+// GetAdmins returns all registered admin records.
+func (db *DB) GetAdmins(ctx context.Context) ([]BotAdmin, error) {
+	query := `SELECT phone_number, name, added_by, created_at FROM bot_admins ORDER BY created_at ASC`
+	rows, err := db.Conn.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []BotAdmin
+	for rows.Next() {
+		var a BotAdmin
+		if err := rows.Scan(&a.PhoneNumber, &a.Name, &a.AddedBy, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, a)
+	}
+	return list, rows.Err()
 }

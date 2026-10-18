@@ -63,6 +63,7 @@ func NewSpellChecker() *SpellChecker {
 		"mata", "pelajaran", "terlambat", "laporan", "nilai", "cek", "tolong", "bisa", "jadwalkan", "pakai",
 		"dipakai", "mulai", "selesai", "jurusan", "fakultas", "hukum", "negara", "indonesia", "islam",
 		"agama", "pancasila", "kewarganegaraan", "bahasa", "pendidikan", "dasar", "alamiah", "ilmu", "pengantar",
+		"admin", "grup", "group", "cabut", "hapus", "daftar", "izinkan", "izin", "akses", "nomor",
 	}
 
 	for _, w := range baseWords {

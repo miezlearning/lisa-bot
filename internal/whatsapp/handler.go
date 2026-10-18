@@ -10,6 +10,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
+	"whatsapp-bot/internal/database"
 	"whatsapp-bot/internal/nlu"
 	"whatsapp-bot/internal/router"
 )
@@ -17,14 +18,16 @@ import (
 // EventHandler registers message listeners and dispatches messages through NLU and Router.
 type EventHandler struct {
 	client *whatsmeow.Client
+	db     *database.DB
 	engine *nlu.Engine
 	router *router.Router
 }
 
 // NewEventHandler creates an EventHandler instance.
-func NewEventHandler(client *whatsmeow.Client, engine *nlu.Engine, r *router.Router) *EventHandler {
+func NewEventHandler(client *whatsmeow.Client, db *database.DB, engine *nlu.Engine, r *router.Router) *EventHandler {
 	return &EventHandler{
 		client: client,
+		db:     db,
 		engine: engine,
 		router: r,
 	}
@@ -54,8 +57,27 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		return
 	}
 
-	// 3. JID & LID Aware Mention / Reply check for Group Chats
+	ctx := context.Background()
+
+	// 3. Group Whitelist & Mention/Reply Check
 	if evt.Info.IsGroup {
+		chatJIDStr := evt.Info.Chat.String()
+		senderPhone := evt.Info.Sender.User
+		lowerRaw := strings.ToLower(rawText)
+
+		// Check if group is authorized in database
+		isAllowed := h.db.IsGroupAllowed(ctx, chatJIDStr)
+		if !isAllowed {
+			// Only allow whitelisting command from registered admin in an unauthorized group
+			isAdmin := h.db.IsAdmin(ctx, senderPhone)
+			isAllowCmd := strings.Contains(lowerRaw, "izinkan grup") || strings.Contains(lowerRaw, "allow group")
+			if !isAdmin || !isAllowCmd {
+				// Silently ignore to avoid spamming unauthorized groups
+				return
+			}
+		}
+
+		// Check if bot was mentioned or replied to in the group
 		if !h.shouldRespondInGroup(evt, rawText) {
 			return
 		}
@@ -68,7 +90,6 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 	}
 
 	// 5. Process through Deterministic NLU Engine
-	ctx := context.Background()
 	nluResult, err := h.engine.Process(ctx, cleanText)
 	if err != nil {
 		fmt.Printf("NLU processing error: %v\n", err)
@@ -93,8 +114,11 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		replyText = fmt.Sprintf("⚠️ Terjadi kesalahan: %v", err)
 	}
 
-	// 8. Auto-Correct Transparency Header
-	autoCorrectHeader := router.FormatAutoCorrectHeader(nluResult.Corrections)
+	// 8. Auto-Correct Transparency Header: HANYA DITAMPILKAN DI GROUP CHAT
+	var autoCorrectHeader string
+	if evt.Info.IsGroup {
+		autoCorrectHeader = router.FormatAutoCorrectHeader(nluResult.Corrections)
+	}
 	finalResponse := autoCorrectHeader + replyText
 
 	// 9. Send WhatsApp Response
