@@ -3,7 +3,10 @@ package whatsapp
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strings"
+	"sync"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
@@ -17,19 +20,24 @@ import (
 
 // EventHandler registers message listeners and dispatches messages through NLU and Router.
 type EventHandler struct {
-	client *whatsmeow.Client
-	db     *database.DB
-	engine *nlu.Engine
-	router *router.Router
+	client    *whatsmeow.Client
+	db        *database.DB
+	engine    *nlu.Engine
+	router    *router.Router
+	lastReply map[string]time.Time
+	mu        sync.Mutex
+	random    *rand.Rand
 }
 
 // NewEventHandler creates an EventHandler instance.
 func NewEventHandler(client *whatsmeow.Client, db *database.DB, engine *nlu.Engine, r *router.Router) *EventHandler {
 	return &EventHandler{
-		client: client,
-		db:     db,
-		engine: engine,
-		router: r,
+		client:    client,
+		db:        db,
+		engine:    engine,
+		router:    r,
+		lastReply: make(map[string]time.Time),
+		random:    rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -271,6 +279,62 @@ func (h *EventHandler) shouldRespondInGroup(evt *events.Message, rawText string)
 }
 
 func (h *EventHandler) sendReply(evt *events.Message, text string) {
+	ctx := context.Background()
+	chatJID := evt.Info.Chat
+
+	// 1. Anti-Flood & Rate Limiting per Chat (hindari spam reply beruntun < 1.2 detik)
+	h.mu.Lock()
+	lastTime, exists := h.lastReply[chatJID.String()]
+	h.mu.Unlock()
+
+	if exists {
+		elapsed := time.Since(lastTime)
+		if elapsed < 1200*time.Millisecond {
+			time.Sleep(1200*time.Millisecond - elapsed)
+		}
+	}
+
+	// 2. Simulasi Waktu Baca Manusia (Realistic Reading Latency: 400ms - 900ms)
+	h.mu.Lock()
+	readDelay := time.Duration(400+h.random.Intn(500)) * time.Millisecond
+	h.mu.Unlock()
+	time.Sleep(readDelay)
+
+	// 3. Kirim Tanda Centang Biru (MarkRead / Read Receipt)
+	// WhatsApp anti-spam memantau akun yang tidak pernah mengirim status baca
+	if !evt.Info.IsFromMe {
+		_ = h.client.MarkRead(ctx, []types.MessageID{evt.Info.ID}, time.Now(), chatJID, evt.Info.Sender)
+	}
+
+	// 4. Kirim Indikator "Sedang Mengetik..." (Chat Presence Composing)
+	_ = h.client.SendChatPresence(ctx, chatJID, types.ChatPresenceComposing, types.ChatPresenceMediaText)
+
+	// 5. Durasi Mengetik Alami Sesuai Panjang Pesan (Typing Speed Simulation)
+	// Rata-rata manusia mengetik ~20-30ms per karakter.
+	// Diberi batas aman: Minimal 1.2 detik, Maksimal 3.5 detik + variasi random (jitter).
+	textLen := len([]rune(text))
+	baseTypingMs := textLen * 22
+	if baseTypingMs < 1200 {
+		baseTypingMs = 1200
+	} else if baseTypingMs > 3500 {
+		baseTypingMs = 3500
+	}
+
+	h.mu.Lock()
+	jitterMs := h.random.Intn(400) - 200 // -200ms s/d +200ms
+	h.mu.Unlock()
+
+	typingDuration := time.Duration(baseTypingMs+jitterMs) * time.Millisecond
+	if typingDuration < 1000*time.Millisecond {
+		typingDuration = 1000 * time.Millisecond
+	}
+
+	time.Sleep(typingDuration)
+
+	// 6. Matikan status mengetik sebelum mengirim (Chat Presence Paused)
+	_ = h.client.SendChatPresence(ctx, chatJID, types.ChatPresencePaused, types.ChatPresenceMediaText)
+
+	// 7. Kirim Pesan dengan Format Quoted / Unquoted Fallback
 	stanzaID := evt.Info.ID
 	var respMsg *waE2E.Message
 
@@ -299,17 +363,23 @@ func (h *EventHandler) sendReply(evt *events.Message, text string) {
 		}
 	}
 
-	_, err := h.client.SendMessage(context.Background(), evt.Info.Chat, respMsg)
+	_, err := h.client.SendMessage(ctx, chatJID, respMsg)
 	if err != nil {
 		fmt.Printf("⚠️ Gagal kirim pesan quoted: %v, mencoba pesan unquoted...\n", err)
-		_, errFallback := h.client.SendMessage(context.Background(), evt.Info.Chat, &waE2E.Message{Conversation: &text})
+		_, errFallback := h.client.SendMessage(ctx, chatJID, &waE2E.Message{Conversation: &text})
 		if errFallback != nil {
 			fmt.Printf("❌ Fallback kirim pesan juga gagal: %v\n", errFallback)
 			return
 		}
 	}
 
-	fmt.Printf("📤 [Balasan Terkirim] Ke: %s\n", evt.Info.Chat.String())
+	// Update timestamp pengiriman terakhir untuk rate limiter chat ini
+	h.mu.Lock()
+	h.lastReply[chatJID.String()] = time.Now()
+	h.mu.Unlock()
+
+	fmt.Printf("📤 [Balasan Terkirim] Ke: %s (Karakter: %d | Waktu Ketik: %v)\n",
+		chatJID.String(), textLen, typingDuration)
 }
 
 func extractMessageText(msg *waE2E.Message) string {
