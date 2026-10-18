@@ -141,7 +141,8 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 	}
 
 	// Check: Bot Help & Utility Menu (support !menu, .ping, /status, etc.)
-	if lower == "help" || lower == "menu" || lower == "bantuan" || lower == "info bot" || lower == "ping" || lower == "status" {
+	if lower == "help" || lower == "menu" || lower == "bantuan" || lower == "info bot" || lower == "ping" || lower == "status" ||
+		strings.HasPrefix(lower, "menu ") || strings.HasPrefix(lower, "help ") {
 		result.Intent = IntentBotHelp
 		result.Confidence = 1.0
 		return result, nil

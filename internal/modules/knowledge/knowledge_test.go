@@ -113,4 +113,45 @@ func TestKnowledgeModule(t *testing.T) {
 		}
 		t.Logf("Reply:\n%s", reply)
 	})
+
+	// Test 3: Menu Dashboard & Ping Status
+	t.Run("Menu Dashboard and Ping", func(t *testing.T) {
+		resMenu, err := engine.Process(ctx, "!menu")
+		if err != nil {
+			t.Fatalf("engine error: %v", err)
+		}
+		msgCtxMenu := &router.MessageContext{
+			Context:      ctx,
+			SenderJID:    types.NewJID("62812345678", types.DefaultUserServer),
+			SenderName:   "Test Mahasiswa",
+			CleanMessage: "!menu",
+			NLUResult:    resMenu,
+		}
+		menuReply, err := r.Route(msgCtxMenu)
+		if err != nil {
+			t.Fatalf("router error: %v", err)
+		}
+		if !strings.Contains(menuReply, "AI LISA DASHBOARD") {
+			t.Errorf("expected AI LISA DASHBOARD in menu, got: %s", menuReply)
+		}
+		t.Logf("Menu Output:\n%s", menuReply)
+
+		resPing, err := engine.Process(ctx, ".ping")
+		if err != nil {
+			t.Fatalf("engine error: %v", err)
+		}
+		msgCtxPing := &router.MessageContext{
+			Context:      ctx,
+			SenderJID:    types.NewJID("62812345678", types.DefaultUserServer),
+			CleanMessage: "ping",
+			NLUResult:    resPing,
+		}
+		pingReply, err := r.Route(msgCtxPing)
+		if err != nil {
+			t.Fatalf("router error: %v", err)
+		}
+		if !strings.Contains(pingReply, "PONG") {
+			t.Errorf("expected PONG in ping response, got: %s", pingReply)
+		}
+	})
 }
