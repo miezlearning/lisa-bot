@@ -158,12 +158,11 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		replyText = fmt.Sprintf("⚠️ Terjadi kesalahan: %v", err)
 	}
 
-	// 8. Auto-Correct Transparency Header: HANYA DITAMPILKAN DI GROUP CHAT
-	var autoCorrectHeader string
-	if evt.Info.IsGroup {
-		autoCorrectHeader = router.FormatAutoCorrectHeader(nluResult.Corrections)
+	// 8. Auto-Correct: Dijalankan senyap (silent) agar balasan bot bersih & natural
+	if len(nluResult.Corrections) > 0 {
+		fmt.Printf("✏️ [Auto-Correct] %s\n", strings.Join(nluResult.Corrections, ", "))
 	}
-	finalResponse := autoCorrectHeader + replyText
+	finalResponse := replyText
 
 	// 9. Send WhatsApp Response
 	h.sendReply(evt, finalResponse)

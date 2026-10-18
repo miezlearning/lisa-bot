@@ -11,15 +11,21 @@ import (
 
 // Handler answers general inquiries, lab/rules/prohibitions, and manages knowledge base additions.
 type Handler struct {
-	db *database.DB
-	sc *nlu.SpellChecker
+	db  *database.DB
+	sc  *nlu.SpellChecker
+	llm nlu.LLMFallback
 }
 
-// NewHandler creates a new knowledge base module handler.
-func NewHandler(db *database.DB, sc *nlu.SpellChecker) *Handler {
+// NewHandler creates a new knowledge base module handler with optional LLM fallback.
+func NewHandler(db *database.DB, sc *nlu.SpellChecker, llm ...nlu.LLMFallback) *Handler {
+	var fallback nlu.LLMFallback
+	if len(llm) > 0 {
+		fallback = llm[0]
+	}
 	return &Handler{
-		db: db,
-		sc: sc,
+		db:  db,
+		sc:  sc,
+		llm: fallback,
 	}
 }
 
@@ -125,6 +131,14 @@ func (h *Handler) handleQuery(ctx *router.MessageContext) (string, error) {
 			if err == nil && len(items) > 0 {
 				return items[0].Content, nil
 			}
+		}
+	}
+
+	// 3. Fallback ke LLM Eksternal (Gemini Free) jika diaktifkan
+	if h.llm != nil {
+		llmPrompt := fmt.Sprintf("Pengguna bertanya: %q (teks normalisasi: %q). Jawablah pertanyaan ini sebagai asisten perkuliahan.", ctx.RawMessage, topicClean)
+		if llmResp, err := h.llm.GenerateResponse(ctx.Context, llmPrompt); err == nil && strings.TrimSpace(llmResp) != "" {
+			return llmResp, nil
 		}
 	}
 

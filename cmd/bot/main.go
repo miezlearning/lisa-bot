@@ -109,8 +109,14 @@ func main() {
 		fmt.Println("🧠 Dynamic Vocabulary & Course Acronyms berhasil di-harvest.")
 	}
 
-	// 5. Inisialisasi NLU Engine
-	engine := nlu.NewEngine(spellchecker, loc, nil)
+	// 5. Inisialisasi NLU Engine & Optional LLM Fallback (Google Gemini Free)
+	var llmFallback nlu.LLMFallback
+	geminiKey := os.Getenv("GEMINI_API_KEY")
+	if geminiKey != "" {
+		llmFallback = nlu.NewGeminiClient(geminiKey)
+		fmt.Println("✨ Google Gemini AI aktif sebagai smart conversational fallback.")
+	}
+	engine := nlu.NewEngine(spellchecker, loc, llmFallback)
 
 	// 6. Inisialisasi Registry Router & Modul Domain
 	botRouter := router.NewRouter()
@@ -118,7 +124,7 @@ func main() {
 	schedHandler := schedule.NewHandler(db, spellchecker, loc)
 	botRouter.Register(schedHandler)
 
-	knowHandler := knowledge.NewHandler(db, spellchecker)
+	knowHandler := knowledge.NewHandler(db, spellchecker, llmFallback)
 	botRouter.Register(knowHandler)
 
 	adminHandler := admin.NewHandler(db)
