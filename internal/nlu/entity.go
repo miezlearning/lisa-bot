@@ -2,6 +2,7 @@ package nlu
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -97,23 +98,50 @@ func ExtractEntities(text string, loc *time.Location) *Entities {
 		ent.TargetDate = kmrn.Format("2006-01-02")
 	}
 
-	// 2. Detect Explicit Day
-	for dayName, dayInt := range DayNameMap {
-		pattern := `\b` + regexp.QuoteMeta(dayName) + `\b`
-		if matched, _ := regexp.MatchString(pattern, lower); matched {
-			ent.TargetDay = dayInt
-			ent.TargetDayName = IntToDayName[dayInt]
-			break
+	// 2. Detect Relative Day Offsets ("3 hari lagi", "2 hari lgi", "minggu depan")
+	timeResolved := ent.RelativeTime != RelativeNone
+	if !timeResolved {
+		offset := -1
+
+		dayOffsetRegex := regexp.MustCompile(`(?i)\b(\d{1,2})\s*(?:hari|hr)\s*(?:lagi|lgi|kedepan|ke\s+depan|kemudian)\b`)
+		if m := dayOffsetRegex.FindStringSubmatch(lower); len(m) > 1 {
+			if n, err := strconv.Atoi(m[1]); err == nil && n > 0 && n <= 60 {
+				offset = n
+			}
+		}
+
+		if offset < 0 {
+			nextWeekRegex := regexp.MustCompile(`(?i)\b(?:minggu|pekan)\s+depan\b`)
+			if nextWeekRegex.MatchString(lower) {
+				offset = 7
+			}
+		}
+
+		if offset >= 0 {
+			applyTargetDate(ent, now.AddDate(0, 0, offset))
+			timeResolved = true
 		}
 	}
 
-	// 3. Detect Room Code (e.g. "b.204", "a.304", "ruang b.204")
+	// 3. Detect Explicit Day
+	if !timeResolved {
+		for dayName, dayInt := range DayNameMap {
+			pattern := `\b` + regexp.QuoteMeta(dayName) + `\b`
+			if matched, _ := regexp.MatchString(pattern, lower); matched {
+				ent.TargetDay = dayInt
+				ent.TargetDayName = IntToDayName[dayInt]
+				break
+			}
+		}
+	}
+
+	// 4. Detect Room Code (e.g. "b.204", "a.304", "ruang b.204")
 	roomRegex := regexp.MustCompile(`(?i)(?:ruang\s+)?([a-z]\.[0-9]{3})`)
 	if roomMatch := roomRegex.FindStringSubmatch(text); len(roomMatch) > 1 {
 		ent.Room = strings.ToUpper(roomMatch[1])
 	}
 
-	// 4. Detect Subject Names & Common Acronyms
+	// 5. Detect Subject Names & Common Acronyms
 	subjectAliases := map[string][]string{
 		"Pengantar Ilmu Hukum":        {"pengantar ilmu hukum", "pih"},
 		"Pengantar Hukum Indonesia":   {"pengantar hukum indonesia", "phi"},
@@ -140,6 +168,13 @@ func ExtractEntities(text string, loc *time.Location) *Entities {
 	}
 
 	return ent
+}
+
+// applyTargetDate fills TargetDay, TargetDayName, and TargetDate from a concrete date.
+func applyTargetDate(ent *Entities, t time.Time) {
+	ent.TargetDay = GoWeekdayToScheduleDay(t.Weekday())
+	ent.TargetDayName = IntToDayName[ent.TargetDay]
+	ent.TargetDate = t.Format("2006-01-02")
 }
 
 // GoWeekdayToScheduleDay maps standard time.Weekday (Sunday=0..Saturday=6) to Monday=1..Sunday=7.

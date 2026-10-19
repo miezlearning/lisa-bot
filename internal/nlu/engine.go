@@ -2,6 +2,8 @@ package nlu
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -176,6 +178,9 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 	if hasExplicitScheduleWord || hasDayWithInquiry || hasSubjectInquiry {
 		result.Intent = IntentScheduleQuery
 		result.Confidence = 0.90
+		if result.Entities.TargetDay == 0 && result.Entities.RelativeTime == RelativeNone && result.Entities.Subject == "" && e.llmFallback != nil {
+			e.refineScheduleWithLLM(ctx, result.Normalized, result)
+		}
 		return result, nil
 	}
 
@@ -192,6 +197,75 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 	result.Intent = IntentConversational
 	result.Confidence = 0.80
 	return result, nil
+}
+
+type llmExtraction struct {
+	Intent    string `json:"intent"`
+	DayOffset *int   `json:"day_offset"`
+	DayName   string `json:"day_name"`
+	Subject   string `json:"subject"`
+}
+
+func parseLLMExtraction(raw string) (*llmExtraction, bool) {
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start == -1 || end == -1 || end <= start {
+		return nil, false
+	}
+	var ext llmExtraction
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &ext); err != nil {
+		return nil, false
+	}
+	return &ext, true
+}
+
+// refineScheduleWithLLM asks the LLM to extract date/subject from schedule queries
+// that the deterministic rules could not map to a specific day.
+func (e *Engine) refineScheduleWithLLM(ctx context.Context, text string, result *NLUResult) {
+	if e.llmFallback == nil || result == nil || result.Entities == nil {
+		return
+	}
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+
+	prompt := "Kamu adalah parser intent untuk bot jadwal kuliah berbahasa Indonesia. " +
+		"Balas HANYA JSON valid tanpa penjelasan dan tanpa markdown, dengan format persis:\n" +
+		`{"intent":"schedule.query|knowledge.query|conversational","day_offset":null,"day_name":null,"subject":null}` + "\n" +
+		"Aturan: day_offset = jumlah hari dari hari ini (angka bulat, contoh \"3 hari lagi\" = 3, \"minggu depan\" = 7); " +
+		"day_name = nama hari Indonesia (senin..minggu) kalau disebut; subject = nama mata kuliah kalau disebut. " +
+		"Kalau tidak ada, isi null.\n" +
+		fmt.Sprintf("Pesan pengguna: %q", text)
+
+	resp, err := e.llmFallback.GenerateResponse(ctx, prompt)
+	if err != nil || strings.TrimSpace(resp) == "" {
+		return
+	}
+
+	ext, ok := parseLLMExtraction(resp)
+	if !ok {
+		return
+	}
+	if ext.Intent != "" && ext.Intent != string(IntentScheduleQuery) {
+		return
+	}
+
+	if ext.DayOffset != nil && *ext.DayOffset >= 0 && *ext.DayOffset <= 60 {
+		applyTargetDate(result.Entities, time.Now().In(e.timezone).AddDate(0, 0, *ext.DayOffset))
+		return
+	}
+
+	if ext.DayName != "" {
+		if day, found := DayNameMap[strings.ToLower(strings.TrimSpace(ext.DayName))]; found {
+			result.Entities.TargetDay = day
+			result.Entities.TargetDayName = IntToDayName[day]
+			return
+		}
+	}
+
+	if ext.Subject != "" && result.Entities.Subject == "" {
+		result.Entities.Subject = strings.TrimSpace(ext.Subject)
+	}
 }
 
 // extractKnowledgeTopic extracts the primary keyword topic for knowledge lookup.

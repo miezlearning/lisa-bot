@@ -131,6 +131,7 @@ func NewSpellChecker() *SpellChecker {
 		"kl":     "kalau",
 		"klo":    "kalau",
 		"lg":     "lagi",
+		"lgi":    "lagi",
 		"aja":    "saja",
 		"bgt":    "banget",
 	}
