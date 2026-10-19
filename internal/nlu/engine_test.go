@@ -2,6 +2,7 @@ package nlu
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -82,5 +83,25 @@ func TestEngineClassification(t *testing.T) {
 				t.Errorf("input %q: expected intent %s, got %s", tc.input, tc.expectedIntent, res.Intent)
 			}
 		})
+	}
+}
+
+func TestPersonaInstruction(t *testing.T) {
+	t.Setenv("BOT_PERSONA", "")
+	t.Setenv("BOT_PERSONA_FILE", "")
+
+	def := buildSystemInstruction(loadPersona())
+	if !strings.Contains(def, "GAYA BICARA") || !strings.Contains(def, `"mi"`) {
+		t.Errorf("default persona missing style block: %s", def)
+	}
+
+	custom := "Balasan pendek, suka bilang wkwk"
+	t.Setenv("BOT_PERSONA", custom)
+	got := buildSystemInstruction(loadPersona())
+	if !strings.Contains(got, custom) {
+		t.Errorf("custom persona from env not applied: %s", got)
+	}
+	if !strings.Contains(got, "JANGAN PERNAH menyebut bahwa kamu adalah Gemini") {
+		t.Errorf("base instruction lost when custom persona applied")
 	}
 }
