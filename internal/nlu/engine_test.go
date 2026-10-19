@@ -94,6 +94,9 @@ func TestPersonaInstruction(t *testing.T) {
 	if !strings.Contains(def, "GAYA BICARA") || !strings.Contains(def, `"mi"`) {
 		t.Errorf("default persona missing style block: %s", def)
 	}
+	if !strings.Contains(def, "BUGIS") || !strings.Contains(def, `"mandre"`) || !strings.Contains(def, "tegaki monro") {
+		t.Errorf("bugis language block missing from system instruction")
+	}
 
 	custom := "Balasan pendek, suka bilang wkwk"
 	t.Setenv("BOT_PERSONA", custom)
@@ -103,5 +106,26 @@ func TestPersonaInstruction(t *testing.T) {
 	}
 	if !strings.Contains(got, "JANGAN PERNAH menyebut bahwa kamu adalah Gemini") {
 		t.Errorf("base instruction lost when custom persona applied")
+	}
+	if !strings.Contains(got, "BUGIS") {
+		t.Errorf("bugis language block lost when custom persona applied")
+	}
+}
+
+func TestBugisWordsPreserved(t *testing.T) {
+	sc := NewSpellChecker()
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{input: "aga kareba", expected: "aga kareba"},
+		{input: "tegaki monro mandre", expected: "tegaki monro mandre"},
+		{input: "purani mandre", expected: "purani mandre"},
+	}
+	for _, tc := range tests {
+		got, _ := sc.CorrectSentence(tc.input)
+		if got != tc.expected {
+			t.Errorf("CorrectSentence(%q) = %q; want %q", tc.input, got, tc.expected)
+		}
 	}
 }

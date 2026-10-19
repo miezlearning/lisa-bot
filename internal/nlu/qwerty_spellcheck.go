@@ -64,6 +64,8 @@ func NewSpellChecker() *SpellChecker {
 		"dipakai", "mulai", "selesai", "jurusan", "fakultas", "hukum", "negara", "indonesia", "islam",
 		"agama", "pancasila", "kewarganegaraan", "bahasa", "pendidikan", "dasar", "alamiah", "ilmu", "pengantar",
 		"admin", "grup", "group", "cabut", "hapus", "daftar", "izinkan", "izin", "akses", "nomor",
+		"aga", "iga", "ega", "tegaki", "monro", "mandre", "inung", "iyya", "madeceng", "macca",
+		"sibawa", "melloka", "meloka", "bola", "jokka", "kareba", "niga", "piga", "lao", "polo",
 	}
 
 	for _, w := range baseWords {
