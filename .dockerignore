@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+bot.exe
+*.db
+*.db-shm
+*.db-wal
+qrcode.png
+test_*.db

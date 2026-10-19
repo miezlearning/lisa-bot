@@ -77,7 +77,7 @@ func ExtractEntities(text string, loc *time.Location) *Entities {
 		ent.TargetDay = GoWeekdayToScheduleDay(now.Weekday())
 		ent.TargetDayName = IntToDayName[ent.TargetDay]
 		ent.TargetDate = now.Format("2006-01-02")
-	case containsAny(lower, []string{"besok", "bsk"}):
+	case containsAny(lower, []string{"besok", "bsk", "bsok"}):
 		ent.RelativeTime = RelativeTomorrow
 		tmrw := now.AddDate(0, 0, 1)
 		ent.TargetDay = GoWeekdayToScheduleDay(tmrw.Weekday())

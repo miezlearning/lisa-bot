@@ -16,6 +16,7 @@ func TestQwertySpellcheck(t *testing.T) {
 		"Pendidikan Agama Islam",
 		"Praktikum Tata Tertib dan Larangan di Ruang Lab",
 		"Jadwal Kuliah Semester Ganjil",
+		"Aturan Praktikum",
 	}
 	sc.LearnFromDatabaseTexts(sampleTexts)
 
@@ -53,6 +54,21 @@ func TestQwertySpellcheck(t *testing.T) {
 			name:     "Complex colloquial query with course acronym",
 			input:    "jdwl snin bsk jam brp pih",
 			expected: "jadwal senin besok jam berapa pengantar ilmu hukum",
+		},
+		{
+			name:     "Missing a in -nya clitic and single letter words",
+			input:    "bsk jdwlny ap y",
+			expected: "besok jadwal apa ya",
+		},
+		{
+			name:     "Common misspelling jadual",
+			input:    "jadualnya bsk",
+			expected: "jadwal besok",
+		},
+		{
+			name:     "Short acronym from harvested title must not override chat word ap",
+			input:    "ap kabar",
+			expected: "apa kabar",
 		},
 	}
 

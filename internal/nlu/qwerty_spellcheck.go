@@ -1,4 +1,4 @@
-package nlu
+﻿package nlu
 
 import (
 	"math"
@@ -57,7 +57,7 @@ func NewSpellChecker() *SpellChecker {
 		"itu", "ini", "ada", "apa", "mau", "coba", "kaya", "kayak", "disebutin", "sebutin",
 		"larangan", "aturan", "praktikum", "tugas", "jadwal", "hari", "besok", "lusa", "kemarin",
 		"sekarang", "ruang", "jam", "kelas", "senin", "selasa", "rabu", "kamis", "jumat", "sabtu", "minggu",
-		"kosong", "libur", "pisah", "kapan", "berapa", "siapa", "dimana", "kuliah", "masuk", "habis",
+		"kosong", "libur", "pisah", "kapan", "berapa", "siapa", "dimana", "kuliah", "masuk", "habis", "lisa", "ai",
 		"setelah", "sebelum", "info", "catatan", "tambah", "simpan", "ganti", "pindah", "zoom", "online",
 		"offline", "tatap", "muka", "dosen", "ujian", "kuis", "tata", "tertib", "bantuan", "menu", "matkul",
 		"mata", "pelajaran", "terlambat", "laporan", "nilai", "cek", "tolong", "bisa", "jadwalkan", "pakai",
@@ -73,14 +73,19 @@ func NewSpellChecker() *SpellChecker {
 	// Slang and colloquial abbreviations
 	baseSlang := map[string]string{
 		"bsk":    "besok",
+		"bsok":   "besok",
+		"ap":     "apa",
+		"y":      "ya",
 		"hr":     "hari",
 		"skrg":   "sekarang",
 		"skr":    "sekarang",
 		"kpn":       "kapan",
 		"brp":       "berapa",
 		"jdwl":      "jadwal",
+		"jwdl":      "jadwal",
 		"jdw":       "jadwal",
 		"jdwal":     "jadwal",
+		"jadual":    "jadwal",
 		"jdwalku":   "jadwal",
 		"jadwalku":  "jadwal",
 		"jdwlku":    "jadwal",
@@ -88,6 +93,7 @@ func NewSpellChecker() *SpellChecker {
 		"jdwlmu":    "jadwal",
 		"jadwalnya": "jadwal",
 		"jdwlnya":   "jadwal",
+		"jdwalnya":  "jadwal",
 		"kelasku":   "kelas",
 		"kelasnya":  "kelas",
 		"matkulku":  "jadwal",
@@ -177,9 +183,12 @@ func (sc *SpellChecker) LearnFromDatabaseTexts(texts []string) {
 				}
 			}
 			acronym := acronymBuilder.String()
-			if len(acronym) >= 2 {
-				fullPhrase := strings.Join(validWords, " ")
-				sc.slangMap[acronym] = fullPhrase
+			// Only generate acronyms of 3+ letters and never override existing slang.
+			// 2-letter acronyms (e.g. "ap" from "Aturan Praktikum") collide with common chat words.
+			if len(acronym) >= 3 {
+				if _, exists := sc.slangMap[acronym]; !exists {
+					sc.slangMap[acronym] = strings.Join(validWords, " ")
+				}
 				sc.vocabulary[acronym] = true
 			}
 		}
@@ -207,11 +216,15 @@ func CleanMentions(text string) string {
 	return strings.TrimSpace(cleaned)
 }
 
-// stripIndonesianClitic strips possessive and definite clitics (-nya, -ku, -mu) from Indonesian words.
+// stripIndonesianClitic strips possessive and definite clitics (-nya/-ny, -ku, -mu) from Indonesian words.
 func stripIndonesianClitic(w string) string {
 	runes := []rune(w)
 	if strings.HasSuffix(w, "nya") && len(runes) > 4 {
 		return string(runes[:len(runes)-3])
+	}
+	// Common texting shorthand: -ny instead of -nya (e.g. "jdwlny", "jadwalny")
+	if strings.HasSuffix(w, "ny") && len(runes) > 3 {
+		return string(runes[:len(runes)-2])
 	}
 	if (strings.HasSuffix(w, "ku") || strings.HasSuffix(w, "mu")) && len(runes) > 3 {
 		return string(runes[:len(runes)-2])

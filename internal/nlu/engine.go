@@ -64,11 +64,11 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 		trimmed = strings.TrimSpace(trimmed[1:])
 	}
 
-	// Strip conversational bot invocation at boundaries (e.g. "lisa, jdwl bsk apa" or "apa jdwalku besok lisa")
-	botCallRegex := regexp.MustCompile(`(?i)(?:^(?:hai\s+|halo\s+)?(?:ai\s+)?lisa[,\s:]*|[,\s:]+(?:ai\s+)?lisa$)`)
-	cleanedInvocation := strings.TrimSpace(botCallRegex.ReplaceAllString(trimmed, ""))
-	if cleanedInvocation != "" {
-		trimmed = cleanedInvocation
+	// Strip any standalone bot invocation tokens (e.g. "lisa", "ai lisa") anywhere in the message
+	botCallRegex := regexp.MustCompile(`(?i)\b(?:ai\s+)?lisa\b`)
+	strippedInvocation := strings.TrimSpace(botCallRegex.ReplaceAllString(trimmed, ""))
+	if strippedInvocation != "" {
+		trimmed = strippedInvocation
 	}
 
 	// 2. Perform 3-Layer Spellcheck & Normalization
@@ -157,12 +157,12 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 
 	// 4. Intent Schedule Query vs Knowledge Query vs Conversational
 	hasExplicitScheduleWord := containsAny(lower, []string{
-		"jadwal", "jdwal", "jdwl", "matkul", "mata kuliah", "kelas", "kuliah", "pelajaran",
+		"jadwal", "jadual", "jdwal", "jdwl", "matkul", "mata kuliah", "kelas", "kuliah", "pelajaran",
 	}) || containsAny(rawLower, []string{
-		"jadwal", "jdwal", "jdwl", "matkul", "mata kuliah", "kelas", "kuliah", "pelajaran",
+		"jadwal", "jadual", "jdwal", "jdwl", "matkul", "mata kuliah", "kelas", "kuliah", "pelajaran",
 	})
 
-	shortDayInquiry := regexp.MustCompile(`(?i)^(?:(?:ada\s+)?apa\s+(?:besok|hari ini|hr ini|sekarang|lusa|senin|selasa|rabu|kamis|jumat|sabtu|minggu)|(?:besok|hari ini|hr ini|sekarang|lusa|senin|selasa|rabu|kamis|jumat|sabtu|minggu)\s+(?:ada\s+)?apa(?:\s+aja|\s+saja)?)\??$`)
+	shortDayInquiry := regexp.MustCompile(`(?i)^(?:(?:ada\s+)?apa\s+(?:besok|bsok|hari ini|hr ini|sekarang|lusa|senin|selasa|rabu|kamis|jumat|sabtu|minggu)|(?:besok|bsok|hari ini|hr ini|sekarang|lusa|senin|selasa|rabu|kamis|jumat|sabtu|minggu)\s+(?:ada\s+)?apa(?:\s+aja|\s+saja)?|(?:besok|bsok|hari ini|hr ini|sekarang|lusa|senin|selasa|rabu|kamis|jumat|sabtu|minggu))\??$`)
 
 	hasDayWithInquiry := (result.Entities.TargetDay > 0 || result.Entities.RelativeTime != RelativeNone) &&
 		(hasExplicitScheduleWord || shortDayInquiry.MatchString(lower) || shortDayInquiry.MatchString(rawLower) || containsAny(lower, []string{
