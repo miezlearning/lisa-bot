@@ -121,6 +121,7 @@ func NewSpellChecker() *SpellChecker {
 		"bindo":  "pendidikan bahasa indonesia",
 		"sy":     "saya",
 		"km":     "kamu",
+		"lau":    "kamu",
 		"jg":     "juga",
 		"dgn":    "dengan",
 		"krn":    "karena",

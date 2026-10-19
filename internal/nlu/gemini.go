@@ -46,7 +46,12 @@ const defaultPersona = `Gaya bicara kamu santai banget, kayak lagi chat sama tem
 - Kadang ulang huruf buat penekanan: "iyaa", "hati hatii", atau dipisah spasi kayak "m a l a s".
 - Ekspresif dan apa adanya: "yey", "hehe", "wkwk", "aduhh", "hmm", kadang akhiran "~~". Kalau lagi malas bilang "m a l a s", kalau nggak tahu bilang "tdk tau".
 - Nggak pakai huruf kapital di awal kalimat, jarang pakai titik/koma yang rapi, emoji sesekali saja maksimal satu.
-- Jangan pernah ngomong kayak asisten atau robot: nggak usah nawarin bantuan berulang, nggak usah bikin ringkasan, nggak usah formal.`
+- Jangan pernah ngomong kayak asisten atau robot: nggak usah nawarin bantuan berulang, nggak usah bikin ringkasan, nggak usah formal.
+- Paham slang Makassar: "lau" = kamu/lu, "ko" = kamu, "ji"/"mi"/"ki"/"na" = partikel, "mpruy" = ekspresi kocak. Jangan pernah anggap kata slang ini sebagai nama orang.
+- Kalau pengguna ketawa atau ngeledek, ikut ketawa atau komentari singkat. JANGAN balas dengan "ada apa?" / "kenapa?" / "knp lg?" berulang-ulang kayak interogasi. Maksimal tanya sekali, setelah itu sambung obrolannya.
+- Sambungin topik yang lagi dibahas. Jangan ganti topik, jangan ngulang pertanyaan yang sama, jangan minta pengguna jelasin ulang kalau maksudnya sudah kelihatan.
+- Pakai "aku" (bukan "gw/gue"), dan sering-sering pakai "mi" biar khas: "bisa mi", "nggak mi", "iya mi", "nanti mi".
+- Variasiin pembuka. Jangan mulai balasan dengan "wkwk" atau "hahaha" terus-terusan.`
 
 func loadPersona() string {
 	if p := strings.TrimSpace(os.Getenv("BOT_PERSONA")); p != "" {
@@ -81,6 +86,7 @@ type geminiRequest struct {
 }
 
 type geminiContent struct {
+	Role  string       `json:"role,omitempty"`
 	Parts []geminiPart `json:"parts"`
 }
 
@@ -105,6 +111,15 @@ type geminiResponse struct {
 
 // GenerateResponse queries Gemini API for natural conversation and typo-resilient fallback answers.
 func (g *GeminiClient) GenerateResponse(ctx context.Context, prompt string) (string, error) {
+	return g.generate(ctx, nil, prompt)
+}
+
+// GenerateConversation sends prior chat turns plus the new prompt so the model keeps context.
+func (g *GeminiClient) GenerateConversation(ctx context.Context, history []ChatMessage, prompt string) (string, error) {
+	return g.generate(ctx, history, prompt)
+}
+
+func (g *GeminiClient) generate(ctx context.Context, history []ChatMessage, prompt string) (string, error) {
 	if g == nil || g.apiKey == "" {
 		return "", fmt.Errorf("gemini api key not configured")
 	}
@@ -121,19 +136,29 @@ func (g *GeminiClient) GenerateResponse(ctx context.Context, prompt string) (str
 	for _, modelName := range candidateModels {
 		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, g.apiKey)
 
+		contents := make([]geminiContent, 0, len(history)+1)
+		for _, turn := range history {
+			role := "user"
+			if turn.Role == "assistant" {
+				role = "model"
+			}
+			contents = append(contents, geminiContent{
+				Role:  role,
+				Parts: []geminiPart{{Text: turn.Text}},
+			})
+		}
+		contents = append(contents, geminiContent{
+			Role:  "user",
+			Parts: []geminiPart{{Text: prompt}},
+		})
+
 		reqBody := geminiRequest{
 			SystemInstruction: &geminiContent{
 				Parts: []geminiPart{
 					{Text: buildSystemInstruction(g.persona)},
 				},
 			},
-			Contents: []geminiContent{
-				{
-					Parts: []geminiPart{
-						{Text: prompt},
-					},
-				},
-			},
+			Contents: contents,
 		}
 
 		jsonData, err := json.Marshal(reqBody)
@@ -162,8 +187,23 @@ func (g *GeminiClient) GenerateResponse(ctx context.Context, prompt string) (str
 
 		var res geminiResponse
 		if err := json.Unmarshal(bodyBytes, &res); err != nil {
+			if resp.StatusCode >= 400 {
+				lastErr = fmt.Errorf("gemini http %d (%s): %s", resp.StatusCode, modelName, strings.TrimSpace(string(bodyBytes)))
+				if resp.StatusCode == 429 || resp.StatusCode >= 500 {
+					continue
+				}
+				return "", lastErr
+			}
 			lastErr = fmt.Errorf("failed to parse gemini json (%s): %w", modelName, err)
 			continue
+		}
+
+		if resp.StatusCode >= 400 && res.Error == nil {
+			lastErr = fmt.Errorf("gemini http %d (%s): %s", resp.StatusCode, modelName, strings.TrimSpace(string(bodyBytes)))
+			if resp.StatusCode == 429 || resp.StatusCode >= 500 {
+				continue
+			}
+			return "", lastErr
 		}
 
 		if res.Error != nil {

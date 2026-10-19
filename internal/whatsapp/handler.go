@@ -18,6 +18,11 @@ import (
 	"whatsapp-bot/internal/router"
 )
 
+const (
+	historyLimit = 12
+	historyTTL   = 30 * time.Minute
+)
+
 // EventHandler registers message listeners and dispatches messages through NLU and Router.
 type EventHandler struct {
 	client    *whatsmeow.Client
@@ -25,6 +30,8 @@ type EventHandler struct {
 	engine    *nlu.Engine
 	router    *router.Router
 	lastReply map[string]time.Time
+	history   map[string][]nlu.ChatMessage
+	historyAt map[string]time.Time
 	mu        sync.Mutex
 	random    *rand.Rand
 }
@@ -37,8 +44,47 @@ func NewEventHandler(client *whatsmeow.Client, db *database.DB, engine *nlu.Engi
 		engine:    engine,
 		router:    r,
 		lastReply: make(map[string]time.Time),
+		history:   make(map[string][]nlu.ChatMessage),
+		historyAt: make(map[string]time.Time),
 		random:    rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
+}
+
+func (h *EventHandler) getHistory(key string) []nlu.ChatMessage {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	turns, ok := h.history[key]
+	if !ok {
+		return nil
+	}
+	if time.Since(h.historyAt[key]) > historyTTL {
+		delete(h.history, key)
+		delete(h.historyAt, key)
+		return nil
+	}
+	out := make([]nlu.ChatMessage, len(turns))
+	copy(out, turns)
+	return out
+}
+
+func (h *EventHandler) appendHistory(key, userText, assistantText string) {
+	if strings.TrimSpace(userText) == "" || strings.TrimSpace(assistantText) == "" {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	turns := append(h.history[key],
+		nlu.ChatMessage{Role: "user", Text: userText},
+		nlu.ChatMessage{Role: "assistant", Text: assistantText},
+	)
+	if len(turns) > historyLimit {
+		turns = turns[len(turns)-historyLimit:]
+	}
+	h.history[key] = turns
+	h.historyAt[key] = time.Now()
 }
 
 // Register registers the event listener on the whatsmeow client.
@@ -147,6 +193,9 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		return
 	}
 
+	historyKey := evt.Info.Chat.String() + "|" + evt.Info.Sender.String()
+	history := h.getHistory(historyKey)
+
 	// 6. Build Message Context
 	msgCtx := &router.MessageContext{
 		Context:      ctx,
@@ -157,6 +206,7 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		IsGroup:      evt.Info.IsGroup,
 		RawMessage:   rawText,
 		CleanMessage: cleanText,
+		History:      history,
 		NLUResult:    nluResult,
 	}
 
@@ -172,7 +222,12 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 	}
 	finalResponse := replyText
 
-	// 9. Send WhatsApp Response
+	// 9. Simpan riwayat hanya untuk percakapan natural (bukan command/query terstruktur)
+	if nluResult.Intent == nlu.IntentConversational {
+		h.appendHistory(historyKey, cleanText, finalResponse)
+	}
+
+	// 10. Send WhatsApp Response
 	h.sendReply(evt, finalResponse)
 }
 
@@ -353,15 +408,10 @@ func (h *EventHandler) sendReply(evt *events.Message, text string) {
 			},
 		}
 	} else {
-		// In private chat, Participant must NOT be set
+		// In private chat, send a plain message without quoting the user's text.
+		// Quoting in DMs makes every reply look like an echo of the incoming message.
 		respMsg = &waE2E.Message{
-			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-				Text: &text,
-				ContextInfo: &waE2E.ContextInfo{
-					StanzaID:      &stanzaID,
-					QuotedMessage: evt.Message,
-				},
-			},
+			Conversation: &text,
 		}
 	}
 

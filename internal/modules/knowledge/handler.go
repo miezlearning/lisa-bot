@@ -64,15 +64,21 @@ func (h *Handler) Execute(ctx *router.MessageContext) (string, error) {
 }
 
 func (h *Handler) handleConversation(ctx *router.MessageContext) (string, error) {
-	// 1. Jika Otak AI aktif, jawab secara cerdas & natural
+	// 1. Jika Otak AI aktif, jawab secara cerdas & natural dengan konteks percakapan
 	if h.llm != nil {
-		fmt.Printf("🤖 [AI Lisa Brain] Menjawab percakapan: %q...\n", ctx.RawMessage)
-		resp, err := h.llm.GenerateResponse(ctx.Context, ctx.RawMessage)
+		fmt.Printf("dY- [AI Lisa Brain] Menjawab percakapan: %q...\n", ctx.RawMessage)
+		var resp string
+		var err error
+		if conv, ok := h.llm.(nlu.ConversationalLLM); ok && len(ctx.History) > 0 {
+			resp, err = conv.GenerateConversation(ctx.Context, ctx.History, ctx.CleanMessage)
+		} else {
+			resp, err = h.llm.GenerateResponse(ctx.Context, ctx.CleanMessage)
+		}
 		if err == nil && strings.TrimSpace(resp) != "" {
-			fmt.Println("✨ [AI Lisa Brain] Berhasil membalas percakapan.")
+			fmt.Println("[AI Lisa Brain] Berhasil membalas percakapan.")
 			return resp, nil
 		}
-		fmt.Printf("⚠️ [AI Lisa Brain Error]: %v\n", err)
+		fmt.Printf("[AI Lisa Brain Error]: %v\n", err)
 	}
 
 	// 2. Fallback jika tanpa Gemini AI (persona Lisa yang ramah)

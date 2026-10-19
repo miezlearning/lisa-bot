@@ -39,6 +39,17 @@ type LLMFallback interface {
 	GenerateResponse(ctx context.Context, prompt string) (string, error)
 }
 
+// ChatMessage is one turn in a conversation sent to an LLM.
+type ChatMessage struct {
+	Role string // "user" or "assistant"
+	Text string
+}
+
+// ConversationalLLM is implemented by LLM clients that can use conversation history.
+type ConversationalLLM interface {
+	GenerateConversation(ctx context.Context, history []ChatMessage, prompt string) (string, error)
+}
+
 // Engine performs intent classification and entity extraction using deterministic NLU rules.
 type Engine struct {
 	spellchecker *SpellChecker
@@ -225,24 +236,7 @@ func (e *Engine) refineScheduleWithLLM(ctx context.Context, text string, result 
 	if e.llmFallback == nil || result == nil || result.Entities == nil {
 		return
 	}
-	if strings.TrimSpace(text) == "" {
-		return
-	}
-
-	prompt := "Kamu adalah parser intent untuk bot jadwal kuliah berbahasa Indonesia. " +
-		"Balas HANYA JSON valid tanpa penjelasan dan tanpa markdown, dengan format persis:\n" +
-		`{"intent":"schedule.query|knowledge.query|conversational","day_offset":null,"day_name":null,"subject":null}` + "\n" +
-		"Aturan: day_offset = jumlah hari dari hari ini (angka bulat, contoh \"3 hari lagi\" = 3, \"minggu depan\" = 7); " +
-		"day_name = nama hari Indonesia (senin..minggu) kalau disebut; subject = nama mata kuliah kalau disebut. " +
-		"Kalau tidak ada, isi null.\n" +
-		fmt.Sprintf("Pesan pengguna: %q", text)
-
-	resp, err := e.llmFallback.GenerateResponse(ctx, prompt)
-	if err != nil || strings.TrimSpace(resp) == "" {
-		return
-	}
-
-	ext, ok := parseLLMExtraction(resp)
+	ext, ok := e.askLLMExtraction(ctx, text)
 	if !ok {
 		return
 	}
@@ -266,6 +260,27 @@ func (e *Engine) refineScheduleWithLLM(ctx context.Context, text string, result 
 	if ext.Subject != "" && result.Entities.Subject == "" {
 		result.Entities.Subject = strings.TrimSpace(ext.Subject)
 	}
+}
+
+func (e *Engine) askLLMExtraction(ctx context.Context, text string) (*llmExtraction, bool) {
+	if e.llmFallback == nil || strings.TrimSpace(text) == "" {
+		return nil, false
+	}
+
+	prompt := "Kamu adalah parser intent untuk bot jadwal kuliah berbahasa Indonesia. " +
+		"Balas HANYA JSON valid tanpa penjelasan dan tanpa markdown, dengan format persis:\n" +
+		`{"intent":"schedule.query|knowledge.query|conversational","day_offset":null,"day_name":null,"subject":null}` + "\n" +
+		"Aturan: intent schedule.query hanya kalau pengguna menanyakan jadwal/kelas/mata kuliah; " +
+		"day_offset = jumlah hari dari hari ini (angka bulat, contoh \"3 hari lagi\" = 3, \"minggu depan\" = 7); " +
+		"day_name = nama hari Indonesia (senin..minggu) kalau disebut; subject = nama mata kuliah kalau disebut. " +
+		"Kalau tidak ada, isi null.\n" +
+		fmt.Sprintf("Pesan pengguna: %q", text)
+
+	resp, err := e.llmFallback.GenerateResponse(ctx, prompt)
+	if err != nil || strings.TrimSpace(resp) == "" {
+		return nil, false
+	}
+	return parseLLMExtraction(resp)
 }
 
 // extractKnowledgeTopic extracts the primary keyword topic for knowledge lookup.

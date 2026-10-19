@@ -20,6 +20,7 @@ type MessageContext struct {
 	IsGroup      bool
 	RawMessage   string
 	CleanMessage string
+	History      []nlu.ChatMessage
 	NLUResult    *nlu.NLUResult
 }
 
