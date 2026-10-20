@@ -14,6 +14,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 
 	"whatsapp-bot/internal/database"
+	"whatsapp-bot/internal/modules/typing"
 	"whatsapp-bot/internal/nlu"
 	"whatsapp-bot/internal/router"
 )
@@ -29,6 +30,7 @@ type EventHandler struct {
 	db        *database.DB
 	engine    *nlu.Engine
 	router    *router.Router
+	typing    *typing.Manager
 	lastReply map[string]time.Time
 	history   map[string][]nlu.ChatMessage
 	historyAt map[string]time.Time
@@ -37,12 +39,16 @@ type EventHandler struct {
 }
 
 // NewEventHandler creates an EventHandler instance.
-func NewEventHandler(client *whatsmeow.Client, db *database.DB, engine *nlu.Engine, r *router.Router) *EventHandler {
+func NewEventHandler(client *whatsmeow.Client, db *database.DB, engine *nlu.Engine, r *router.Router, typingManager *typing.Manager) *EventHandler {
+	if typingManager == nil {
+		typingManager = typing.NewManager()
+	}
 	return &EventHandler{
 		client:    client,
 		db:        db,
 		engine:    engine,
 		router:    r,
+		typing:    typingManager,
 		lastReply: make(map[string]time.Time),
 		history:   make(map[string][]nlu.ChatMessage),
 		historyAt: make(map[string]time.Time),
@@ -116,13 +122,14 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 
 	ctx := context.Background()
 	senderPhone, senderLID := h.resolveSender(ctx, evt)
+	chatJIDStr := evt.Info.Chat.String()
+	userID := evt.Info.Sender.ToNonAD().String()
 
 	fmt.Printf("\n📩 [Pesan Masuk] Dari: %s (Phone: %s, LID: %s) | Chat: %s (Grup: %v)\n   Teks: %q\n",
 		evt.Info.Sender.String(), senderPhone, senderLID, evt.Info.Chat.String(), evt.Info.IsGroup, rawText)
 
 	// 3. Group Whitelist & Mention/Reply Check
 	if evt.Info.IsGroup {
-		chatJIDStr := evt.Info.Chat.String()
 		lowerRaw := strings.ToLower(rawText)
 
 		// Check registered admins count
@@ -173,20 +180,32 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 			}
 		}
 
-		// Check if bot was mentioned or replied to in the group
-		if !h.shouldRespondInGroup(evt, rawText) {
+		// Check if bot was mentioned or replied to in the group.
+		// Active typing participants and session-aware bare commands bypass this check.
+		if !h.shouldRespondInGroup(evt, rawText) && !h.typing.NeedsHandling(chatJIDStr, userID, rawText) {
 			fmt.Printf("ℹ️ [Abaikan] Bot tidak di-mention atau di-reply di grup %s.\n", chatJIDStr)
 			return
 		}
 	}
 
-	// 4. Strip mentions (@628xxx, @bot, etc.) before NLU processing
+	// 4. Typing test commands and answer submissions
+	if handled, reply, markStarted := h.typing.HandleMessage(chatJIDStr, userID, evt.Info.PushName, rawText); handled {
+		if reply != "" {
+			h.sendReply(evt, reply)
+		}
+		if markStarted {
+			h.typing.MarkStarted(chatJIDStr)
+		}
+		return
+	}
+
+	// 5. Strip mentions (@628xxx, @bot, etc.) before NLU processing
 	cleanText := nlu.CleanMentions(rawText)
 	if strings.TrimSpace(cleanText) == "" {
 		cleanText = "help"
 	}
 
-	// 5. Process through Deterministic NLU Engine
+	// 6. Process through Deterministic NLU Engine
 	nluResult, err := h.engine.Process(ctx, cleanText)
 	if err != nil {
 		fmt.Printf("❌ NLU processing error: %v\n", err)
@@ -196,7 +215,7 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 	historyKey := evt.Info.Chat.String() + "|" + evt.Info.Sender.String()
 	history := h.getHistory(historyKey)
 
-	// 6. Build Message Context
+	// 7. Build Message Context
 	msgCtx := &router.MessageContext{
 		Context:      ctx,
 		SenderJID:    evt.Info.Sender,
@@ -210,24 +229,24 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		NLUResult:    nluResult,
 	}
 
-	// 7. Route and Execute
+	// 8. Route and Execute
 	replyText, err := h.router.Route(msgCtx)
 	if err != nil {
 		replyText = fmt.Sprintf("⚠️ Terjadi kesalahan: %v", err)
 	}
 
-	// 8. Auto-Correct: Dijalankan senyap (silent) agar balasan bot bersih & natural
+	// 9. Auto-Correct: Dijalankan senyap (silent) agar balasan bot bersih & natural
 	if len(nluResult.Corrections) > 0 {
 		fmt.Printf("✏️ [Auto-Correct] %s\n", strings.Join(nluResult.Corrections, ", "))
 	}
 	finalResponse := replyText
 
-	// 9. Simpan riwayat hanya untuk percakapan natural (bukan command/query terstruktur)
+	// 10. Simpan riwayat hanya untuk percakapan natural (bukan command/query terstruktur)
 	if nluResult.Intent == nlu.IntentConversational {
 		h.appendHistory(historyKey, cleanText, finalResponse)
 	}
 
-	// 10. Send WhatsApp Response
+	// 11. Send WhatsApp Response
 	h.sendReply(evt, finalResponse)
 }
 
@@ -432,6 +451,20 @@ func (h *EventHandler) sendReply(evt *events.Message, text string) {
 
 	fmt.Printf("📤 [Balasan Terkirim] Ke: %s (Karakter: %d | Waktu Ketik: %v)\n",
 		chatJID.String(), textLen, typingDuration)
+}
+
+func (h *EventHandler) SendText(chatJID, text string) {
+	jid, err := types.ParseJID(chatJID)
+	if err != nil {
+		fmt.Printf("⚠️ Gagal parse JID %s: %v\n", chatJID, err)
+		return
+	}
+	_, err = h.client.SendMessage(context.Background(), jid, &waE2E.Message{Conversation: &text})
+	if err != nil {
+		fmt.Printf("❌ Gagal kirim pesan ke %s: %v\n", chatJID, err)
+		return
+	}
+	fmt.Printf("📤 [Pesan Terkirim] Ke: %s (Timeout/Notifikasi)\n", chatJID)
 }
 
 func extractMessageText(msg *waE2E.Message) string {

@@ -175,6 +175,14 @@ func (h *Handler) handleHelp(ctx *router.MessageContext) (string, error) {
 		"│ ⭔ `!tambah info <topik> | <isi>`\n"+
 		"╰────────────────────────┈\n\n"+
 		"%s"+
+		"╭─「 ⌨️ *TES MENGETIK* 」\n"+
+		"│ ⭔ `!typing easy|normal|hard` _(Buka sesi + level)_\n"+
+		"│ ⭔ `!level easy|normal|hard` _(Ganti level, host)_\n"+
+		"│ ⭔ `!join` _(Ikut sesi yang sedang dibuka)_\n"+
+		"│ ⭔ `!mulai` _(Mulai tes, khusus host)_\n"+
+		"│ ⭔ `!batal` _(Batalkan sesi, host)_\n"+
+		"│ ⭔ `!leaderboard` _(Lihat skor terakhir)_\n"+
+		"╰────────────────────────┈\n\n"+
 		"╭─「 ⚡ *SISTEM & UTILITAS* 」\n"+
 		"│ ⭔ `!ping` _(Cek status & latensi bot)_\n"+
 		"│ ⭔ `!menu` _(Tampilkan menu dashboard ini)_\n"+

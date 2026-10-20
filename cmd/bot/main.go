@@ -14,6 +14,7 @@ import (
 	"whatsapp-bot/internal/modules/admin"
 	"whatsapp-bot/internal/modules/knowledge"
 	"whatsapp-bot/internal/modules/schedule"
+	"whatsapp-bot/internal/modules/typing"
 	"whatsapp-bot/internal/nlu"
 	"whatsapp-bot/internal/router"
 	"whatsapp-bot/internal/whatsapp"
@@ -130,7 +131,9 @@ func main() {
 	adminHandler := admin.NewHandler(db)
 	botRouter.Register(adminHandler)
 
-	fmt.Println("🧩 Modul Schedule, Knowledge Base, dan Admin berhasil diregistrasi.")
+	typingManager := typing.NewManager()
+
+	fmt.Println("🧩 Modul Schedule, Knowledge Base, Admin, dan Typing Test berhasil diregistrasi.")
 
 	// 7. Inisialisasi Whatsmeow WhatsApp Client
 	logLevel := os.Getenv("LOG_LEVEL")
@@ -144,7 +147,8 @@ func main() {
 	}
 
 	// 8. Registrasi Event Handler (JID/LID Mention Aware + Group Whitelist Restrictor)
-	eventHandler := whatsapp.NewEventHandler(waClient.WAClient, db, engine, botRouter)
+	eventHandler := whatsapp.NewEventHandler(waClient.WAClient, db, engine, botRouter, typingManager)
+	typingManager.SetSender(eventHandler.SendText)
 	eventHandler.Register()
 
 	// 9. Connect WhatsApp Client
