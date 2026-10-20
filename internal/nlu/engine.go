@@ -18,6 +18,8 @@ const (
 	IntentScheduleSaveRaw  IntentType = "schedule.save_raw"
 	IntentKnowledgeQuery   IntentType = "knowledge.query"
 	IntentKnowledgeAdd     IntentType = "knowledge.add"
+	IntentReminderCommand  IntentType = "reminder.command"
+	IntentBriefingCommand  IntentType = "briefing.command"
 	IntentBotHelp          IntentType = "bot.help"
 	IntentAdminCommand     IntentType = "admin.command"
 	IntentConversational   IntentType = "conversational"
@@ -109,6 +111,35 @@ func (e *Engine) Process(ctx context.Context, rawText string) (*NLUResult, error
 		result.Confidence = 1.0
 		result.Entities.RawPayload = trimmed
 		return result, nil
+	}
+
+	// Check Reminder, Deadline & Morning Briefing commands before generic parsing.
+	// The payload is kept raw because it contains free-form messages and time expressions.
+	if fields := strings.Fields(trimmed); len(fields) > 0 {
+		firstToken := strings.ToLower(strings.Trim(fields[0], " :,;"))
+		command := ""
+		switch firstToken {
+		case "ingatkan", "ingetin", "ingetkan", "remind", "reminder", "pengingat":
+			command = "reminder"
+		case "deadline", "deadline-nya", "deadlinenya", "tenggat", "tenggatnya":
+			command = "deadline"
+		case "briefing", "breafing":
+			command = "briefing"
+		}
+		if command == "briefing" {
+			result.Intent = IntentBriefingCommand
+			result.Confidence = 1.0
+			result.Entities.Command = command
+			result.Entities.RawPayload = strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
+			return result, nil
+		}
+		if command != "" {
+			result.Intent = IntentReminderCommand
+			result.Confidence = 1.0
+			result.Entities.Command = command
+			result.Entities.RawPayload = strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
+			return result, nil
+		}
 	}
 
 	// 3. Command Regex Checkers

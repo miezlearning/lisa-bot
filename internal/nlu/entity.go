@@ -30,18 +30,19 @@ type Entities struct {
 	KnowledgeTopic string // e.g. "larangan", "aturan"
 	OverrideNote   string // notes for crowd-sourced override
 	RawPayload     string // payload for commands like "simpan jadwal" or "tambah info"
+	Command        string // canonical command name, e.g. "reminder", "deadline", "briefing"
 }
 
 // DayNameMap maps lowercase Indonesian day names to 1-7 (1=Senin..7=Minggu).
 var DayNameMap = map[string]int{
-	"senin":   1,
-	"selasa":  2,
-	"rabu":    3,
-	"kamis":   4,
-	"jumat":   5,
-	"sabtu":   6,
-	"minggu":  7,
-	"ahad":    7,
+	"senin":  1,
+	"selasa": 2,
+	"rabu":   3,
+	"kamis":  4,
+	"jumat":  5,
+	"sabtu":  6,
+	"minggu": 7,
+	"ahad":   7,
 }
 
 var IntToDayName = map[int]string{

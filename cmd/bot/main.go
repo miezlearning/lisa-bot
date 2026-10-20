@@ -13,6 +13,7 @@ import (
 	"whatsapp-bot/internal/database"
 	"whatsapp-bot/internal/modules/admin"
 	"whatsapp-bot/internal/modules/knowledge"
+	"whatsapp-bot/internal/modules/reminder"
 	"whatsapp-bot/internal/modules/schedule"
 	"whatsapp-bot/internal/modules/typing"
 	"whatsapp-bot/internal/nlu"
@@ -131,9 +132,12 @@ func main() {
 	adminHandler := admin.NewHandler(db)
 	botRouter.Register(adminHandler)
 
+	reminderHandler := reminder.NewHandler(db, loc)
+	botRouter.Register(reminderHandler)
+
 	typingManager := typing.NewManager()
 
-	fmt.Println("🧩 Modul Schedule, Knowledge Base, Admin, dan Typing Test berhasil diregistrasi.")
+	fmt.Println("🧩 Modul Schedule, Knowledge Base, Admin, Reminder, Briefing, dan Typing Test berhasil diregistrasi.")
 
 	// 7. Inisialisasi Whatsmeow WhatsApp Client
 	logLevel := os.Getenv("LOG_LEVEL")
@@ -156,6 +160,11 @@ func main() {
 		log.Fatalf("❌ Gagal menghubungkan WhatsApp client: %v", err)
 	}
 
+	// 9b. Jalankan Scheduler Pengingat & Morning Briefing
+	briefingScheduler := reminder.NewScheduler(db, loc, reminderHandler.BuildBriefing, eventHandler.SendText)
+	briefingScheduler.Start()
+	fmt.Println("⏰ Scheduler pengingat & morning briefing aktif.")
+
 	fmt.Println("🤖 Bot Lisa aktif dan siap melayani pesan WhatsApp!")
 	fmt.Println("Tekan Ctrl+C di terminal untuk mematikan bot secara graceful.")
 
@@ -166,6 +175,7 @@ func main() {
 	<-stopChan
 	fmt.Println("\n🛑 Menerima sinyal shutdown, menutup koneksi...")
 
+	briefingScheduler.Stop()
 	waClient.Disconnect()
 	fmt.Println("✅ AI Lisa WhatsApp Bot berhenti dengan aman.")
 }

@@ -183,6 +183,17 @@ func (h *Handler) handleHelp(ctx *router.MessageContext) (string, error) {
 		"│ ⭔ `!batal` _(Batalkan sesi, host)_\n"+
 		"│ ⭔ `!leaderboard` _(Lihat skor terakhir)_\n"+
 		"╰────────────────────────┈\n\n"+
+		"╭─「 ⏰ *PENGINGAT & DEADLINE* 」\n"+
+		"│ ⭔ `!ingatkan besok jam 8 kumpul tugas`\n"+
+		"│ ⭔ `!deadline 25/10 23:59 tugas hukum`\n"+
+		"│ ⭔ `!ingatkan` _(Lihat daftar aktif)_\n"+
+		"│ ⭔ `!ingatkan hapus <id>`\n"+
+		"╰────────────────────────┈\n\n"+
+		"╭─「 🌅 *MORNING BRIEFING* 」\n"+
+		"│ ⭔ `!briefing on|off` _(Aktif/nonaktif)_\n"+
+		"│ ⭔ `!briefing 06:30` _(Atur jam kirim)_\n"+
+		"│ ⭔ `!briefing test` _(Pratinjau sekarang)_\n"+
+		"╰────────────────────────┈\n\n"+
 		"╭─「 ⚡ *SISTEM & UTILITAS* 」\n"+
 		"│ ⭔ `!ping` _(Cek status & latensi bot)_\n"+
 		"│ ⭔ `!menu` _(Tampilkan menu dashboard ini)_\n"+
