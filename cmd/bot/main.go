@@ -15,6 +15,7 @@ import (
 	"whatsapp-bot/internal/modules/knowledge"
 	"whatsapp-bot/internal/modules/reminder"
 	"whatsapp-bot/internal/modules/schedule"
+	"whatsapp-bot/internal/modules/sticker"
 	"whatsapp-bot/internal/modules/typing"
 	"whatsapp-bot/internal/nlu"
 	"whatsapp-bot/internal/router"
@@ -137,7 +138,13 @@ func main() {
 
 	typingManager := typing.NewManager()
 
-	fmt.Println("🧩 Modul Schedule, Knowledge Base, Admin, Reminder, Briefing, dan Typing Test berhasil diregistrasi.")
+	fmt.Println("🧩 Modul Schedule, Knowledge Base, Admin, Reminder, Briefing, Stiker, dan Typing Test berhasil diregistrasi.")
+
+	if sticker.Available() {
+		fmt.Println("🖼️ Fitur stiker siap (ffmpeg terdeteksi).")
+	} else {
+		fmt.Println("⚠️ ffmpeg tidak ditemukan di PATH. Perintah !stiker tidak akan berfungsi.")
+	}
 
 	// 7. Inisialisasi Whatsmeow WhatsApp Client
 	logLevel := os.Getenv("LOG_LEVEL")

@@ -169,6 +169,10 @@ func (h *Handler) handleHelp(ctx *router.MessageContext) (string, error) {
 		"│ ⭔ `!kapan kelas pih` _(Cari matkul tertentu)_\n"+
 		"│ ⭔ `!info hari ini <matkul> <catatan>`\n"+
 		"╰────────────────────────┈\n\n"+
+		"╭─「 🖼️ *PEMBUAT STIKER* 」\n"+
+		"│ ⭔ Kirim gambar/GIF dengan caption `!stiker`\n"+
+		"│ ⭔ Atau reply gambar/GIF lalu ketik `!stiker`\n"+
+		"╰────────────────────────┈\n\n"+
 		"╭─「 📌 *ATURAN & TATA TERTIB* 」\n"+
 		"│ ⭔ `!larangan praktikum` _(Tata tertib lab)_\n"+
 		"│ ⭔ `!aturan lab` _(Ketentuan kuliah)_\n"+

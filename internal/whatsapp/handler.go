@@ -26,16 +26,17 @@ const (
 
 // EventHandler registers message listeners and dispatches messages through NLU and Router.
 type EventHandler struct {
-	client    *whatsmeow.Client
-	db        *database.DB
-	engine    *nlu.Engine
-	router    *router.Router
-	typing    *typing.Manager
-	lastReply map[string]time.Time
-	history   map[string][]nlu.ChatMessage
-	historyAt map[string]time.Time
-	mu        sync.Mutex
-	random    *rand.Rand
+	client     *whatsmeow.Client
+	db         *database.DB
+	engine     *nlu.Engine
+	router     *router.Router
+	typing     *typing.Manager
+	lastReply  map[string]time.Time
+	history    map[string][]nlu.ChatMessage
+	historyAt  map[string]time.Time
+	mu         sync.Mutex
+	random     *rand.Rand
+	stickerSem chan struct{}
 }
 
 // NewEventHandler creates an EventHandler instance.
@@ -44,15 +45,16 @@ func NewEventHandler(client *whatsmeow.Client, db *database.DB, engine *nlu.Engi
 		typingManager = typing.NewManager()
 	}
 	return &EventHandler{
-		client:    client,
-		db:        db,
-		engine:    engine,
-		router:    r,
-		typing:    typingManager,
-		lastReply: make(map[string]time.Time),
-		history:   make(map[string][]nlu.ChatMessage),
-		historyAt: make(map[string]time.Time),
-		random:    rand.New(rand.NewSource(time.Now().UnixNano())),
+		client:     client,
+		db:         db,
+		engine:     engine,
+		router:     r,
+		typing:     typingManager,
+		lastReply:  make(map[string]time.Time),
+		history:    make(map[string][]nlu.ChatMessage),
+		historyAt:  make(map[string]time.Time),
+		random:     rand.New(rand.NewSource(time.Now().UnixNano())),
+		stickerSem: make(chan struct{}, 2),
 	}
 }
 
@@ -111,14 +113,17 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		return
 	}
 
-	// 2. Extract message text (supports normal, ephemeral/disappearing, view once, and caption messages)
+	// 2. Extract message text (supports normal, ephemeral/disappearing, view once, and captions)
 	rawText := extractMessageText(evt.Message)
-	if strings.TrimSpace(rawText) == "" {
+	caption := extractMediaCaption(evt.Message)
+	stickerCmd := isStickerCommand(rawText) || isStickerCommand(caption)
+	displayText := rawText
+	if strings.TrimSpace(displayText) == "" && stickerCmd {
+		displayText = caption
+	}
+	if strings.TrimSpace(displayText) == "" {
 		return
 	}
-
-	fmt.Printf("\n📩 [Pesan Masuk] Dari: %s | Chat: %s (Grup: %v)\n   Teks: %q\n",
-		evt.Info.Sender.String(), evt.Info.Chat.String(), evt.Info.IsGroup, rawText)
 
 	ctx := context.Background()
 	senderPhone, senderLID := h.resolveSender(ctx, evt)
@@ -126,11 +131,11 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 	userID := evt.Info.Sender.ToNonAD().String()
 
 	fmt.Printf("\n📩 [Pesan Masuk] Dari: %s (Phone: %s, LID: %s) | Chat: %s (Grup: %v)\n   Teks: %q\n",
-		evt.Info.Sender.String(), senderPhone, senderLID, evt.Info.Chat.String(), evt.Info.IsGroup, rawText)
+		evt.Info.Sender.String(), senderPhone, senderLID, evt.Info.Chat.String(), evt.Info.IsGroup, displayText)
 
 	// 3. Group Whitelist & Mention/Reply Check
 	if evt.Info.IsGroup {
-		lowerRaw := strings.ToLower(rawText)
+		lowerRaw := strings.ToLower(displayText)
 
 		// Check registered admins count
 		adminCount, _ := h.db.GetAdminCount(ctx)
@@ -182,13 +187,19 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 
 		// Check if bot was mentioned or replied to in the group.
 		// Active typing participants and session-aware bare commands bypass this check.
-		if !h.shouldRespondInGroup(evt, rawText) && !h.typing.NeedsHandling(chatJIDStr, userID, rawText) {
+		if !h.shouldRespondInGroup(evt, displayText) && !h.typing.NeedsHandling(chatJIDStr, userID, rawText) {
 			fmt.Printf("ℹ️ [Abaikan] Bot tidak di-mention atau di-reply di grup %s.\n", chatJIDStr)
 			return
 		}
 	}
 
-	// 4. Typing test commands and answer submissions
+	// 4. Sticker creation command (attached or quoted image/GIF/video)
+	if stickerCmd {
+		h.handleSticker(evt)
+		return
+	}
+
+	// 5. Typing test commands and answer submissions
 	if handled, reply, markStarted := h.typing.HandleMessage(chatJIDStr, userID, evt.Info.PushName, rawText); handled {
 		if reply != "" {
 			h.sendReply(evt, reply)
@@ -199,13 +210,13 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		return
 	}
 
-	// 5. Strip mentions (@628xxx, @bot, etc.) before NLU processing
+	// 6. Strip mentions (@628xxx, @bot, etc.) before NLU processing
 	cleanText := nlu.CleanMentions(rawText)
 	if strings.TrimSpace(cleanText) == "" {
 		cleanText = "help"
 	}
 
-	// 6. Process through Deterministic NLU Engine
+	// 7. Process through Deterministic NLU Engine
 	nluResult, err := h.engine.Process(ctx, cleanText)
 	if err != nil {
 		fmt.Printf("❌ NLU processing error: %v\n", err)
@@ -215,7 +226,7 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 	historyKey := evt.Info.Chat.String() + "|" + evt.Info.Sender.String()
 	history := h.getHistory(historyKey)
 
-	// 7. Build Message Context
+	// 8. Build Message Context
 	msgCtx := &router.MessageContext{
 		Context:      ctx,
 		SenderJID:    evt.Info.Sender,
@@ -229,24 +240,24 @@ func (h *EventHandler) handleMessage(evt *events.Message) {
 		NLUResult:    nluResult,
 	}
 
-	// 8. Route and Execute
+	// 9. Route and Execute
 	replyText, err := h.router.Route(msgCtx)
 	if err != nil {
 		replyText = fmt.Sprintf("⚠️ Terjadi kesalahan: %v", err)
 	}
 
-	// 9. Auto-Correct: Dijalankan senyap (silent) agar balasan bot bersih & natural
+	// 10. Auto-Correct: Dijalankan senyap (silent) agar balasan bot bersih & natural
 	if len(nluResult.Corrections) > 0 {
 		fmt.Printf("✏️ [Auto-Correct] %s\n", strings.Join(nluResult.Corrections, ", "))
 	}
 	finalResponse := replyText
 
-	// 10. Simpan riwayat hanya untuk percakapan natural (bukan command/query terstruktur)
+	// 11. Simpan riwayat hanya untuk percakapan natural (bukan command/query terstruktur)
 	if nluResult.Intent == nlu.IntentConversational {
 		h.appendHistory(historyKey, cleanText, finalResponse)
 	}
 
-	// 11. Send WhatsApp Response
+	// 12. Send WhatsApp Response
 	h.sendReply(evt, finalResponse)
 }
 
@@ -471,17 +482,9 @@ func extractMessageText(msg *waE2E.Message) string {
 	if msg == nil {
 		return ""
 	}
-	// Unwrap ephemeral message (disappearing messages)
-	if msg.EphemeralMessage != nil && msg.EphemeralMessage.Message != nil {
-		msg = msg.EphemeralMessage.Message
-	}
-	// Unwrap view once message
-	if msg.ViewOnceMessage != nil && msg.ViewOnceMessage.Message != nil {
-		msg = msg.ViewOnceMessage.Message
-	}
-	// Unwrap document with caption
-	if msg.DocumentWithCaptionMessage != nil && msg.DocumentWithCaptionMessage.Message != nil {
-		msg = msg.DocumentWithCaptionMessage.Message
+	msg = unwrapMessage(msg)
+	if msg == nil {
+		return ""
 	}
 	if msg.Conversation != nil && *msg.Conversation != "" {
 		return *msg.Conversation
@@ -492,15 +495,31 @@ func extractMessageText(msg *waE2E.Message) string {
 	return ""
 }
 
+// unwrapMessage peels containers like disappearing, view-once and document captions.
+func unwrapMessage(msg *waE2E.Message) *waE2E.Message {
+	for i := 0; i < 4 && msg != nil; i++ {
+		switch {
+		case msg.EphemeralMessage != nil && msg.EphemeralMessage.Message != nil:
+			msg = msg.EphemeralMessage.Message
+		case msg.ViewOnceMessage != nil && msg.ViewOnceMessage.Message != nil:
+			msg = msg.ViewOnceMessage.Message
+		case msg.ViewOnceMessageV2 != nil && msg.ViewOnceMessageV2.Message != nil:
+			msg = msg.ViewOnceMessageV2.Message
+		case msg.ViewOnceMessageV2Extension != nil && msg.ViewOnceMessageV2Extension.Message != nil:
+			msg = msg.ViewOnceMessageV2Extension.Message
+		case msg.DocumentWithCaptionMessage != nil && msg.DocumentWithCaptionMessage.Message != nil:
+			msg = msg.DocumentWithCaptionMessage.Message
+		default:
+			return msg
+		}
+	}
+	return msg
+}
+
 func getContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
+	msg = unwrapMessage(msg)
 	if msg == nil {
 		return nil
-	}
-	if msg.EphemeralMessage != nil && msg.EphemeralMessage.Message != nil {
-		msg = msg.EphemeralMessage.Message
-	}
-	if msg.ViewOnceMessage != nil && msg.ViewOnceMessage.Message != nil {
-		msg = msg.ViewOnceMessage.Message
 	}
 	if msg.ExtendedTextMessage != nil {
 		return msg.ExtendedTextMessage.ContextInfo
