@@ -314,8 +314,9 @@ func (h *EventHandler) resolveSender(ctx context.Context, evt *events.Message) (
 func (h *EventHandler) shouldRespondInGroup(evt *events.Message, rawText string) bool {
 	lower := strings.ToLower(strings.TrimSpace(rawText))
 
-	// Prefix @bot, @lisa, !, /, ., or #
+	// Prefix @bot, @lisa, @ai lisa, !, /, ., or #
 	if strings.Contains(lower, "@bot") || strings.Contains(lower, "@lisa") ||
+		strings.Contains(lower, "@ai lisa") ||
 		strings.HasPrefix(lower, "!") || strings.HasPrefix(lower, "/") ||
 		strings.HasPrefix(lower, ".") || strings.HasPrefix(lower, "#") {
 		return true

@@ -19,7 +19,7 @@ import (
 
 var (
 	stickerExactPattern = regexp.MustCompile(
-		`(?i)^\s*(?:@\S+\s+)*(?:(?:ai\s+)?lisa\s+)?[.!\/#]?\s*(?:(?:buat|bikin|bikinin|jadikan|jadiin)\s+)?(?:sticker|stiker|stikker)(?:in|kan)?\s*$`,
+		`(?i)^\s*(?:@\S+\s+)*(?:(?:ai\s+)?lisa\s+)?[.!\/#]?\s*(?:(?:buat(?:in|kan)?|bikin(?:in|kan)?|jadikan|jadiin)\s+)?(?:sticker|stiker|stikker)(?:in|kan)?\s*$`,
 	)
 	stickerShortPattern = regexp.MustCompile(
 		`(?i)^(?:sticker|stiker|stikker)(?:\s+(?:dong|ya|yah|kak|please|pls|min|bang|gan|sih|deh))?$`,
@@ -28,7 +28,7 @@ var (
 	stickerBotNamePattern = regexp.MustCompile(`(?i)\b(?:ai\s+)?lisa\b`)
 	stickerWordPattern    = regexp.MustCompile(`(?i)\b(?:sticker|stiker|stikker)(?:in|kan)?\b`)
 	stickerVerbPattern    = regexp.MustCompile(
-		`(?i)\b(?:buat|buatkan|bikin|bikinin|bikinkan|jadikan|jadiin|jadi|ubah|rubah|ubahin|konversi|convert|stikerin|stikerkan)\b`,
+		`(?i)\b(?:buat(?:in|kan)?|bikin(?:in|kan)?|jadikan|jadiin|jadi|ubah(?:in)?|rubah(?:in)?|konversi|convert|stikerin|stikerkan)\b`,
 	)
 	stickerQuestionPattern = regexp.MustCompile(
 		`(?i)\b(?:gimana|bagaimana|gmn|apa|apakah|cara|how|what|kenapa|kok|jelaskan|jelasin|pengertian)\b`,

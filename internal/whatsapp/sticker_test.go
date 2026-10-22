@@ -24,6 +24,8 @@ func TestIsStickerCommand(t *testing.T) {
 		"stikerin":                     true,
 		"stiker dong":                  true,
 		"@bot jadikan stiker":          true,
+		"@AI Lisa buatin stiker":       true,
+		"tolong buatin stiker dong":    true,
 		"tolong jadikan stiker dong":   true,
 		"bikin stiker dari gambar ini": true,
 		"ubah foto ini jadi stiker":    true,
